@@ -1,0 +1,5 @@
+/target
+/dist
+/others/packaging/res/mipmap-*/
+*.part
+.DS_Store

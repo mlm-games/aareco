@@ -1,0 +1,17 @@
+[package]
+name = "aareco-recorder"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Microphone capture and crash-safe WAV writing for Aareco"
+
+[dependencies]
+cpal.workspace = true
+rtrb.workspace = true
+parking_lot.workspace = true
+thiserror.workspace = true
+log.workspace = true
+
+[dev-dependencies]
+tempfile = "3"
