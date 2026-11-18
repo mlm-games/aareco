@@ -2,8 +2,8 @@ use std::rc::Rc;
 
 use aareco_store::{Library, Recording};
 use chrono::{DateTime, Local, TimeZone};
-use repose_core::prelude::*;
 use repose_core::modifier::PaddingValues;
+use repose_core::prelude::*;
 use repose_core::text::FontWeight;
 use repose_material::Icon;
 use repose_material::material3::{IconButton, IconButtonConfig, SliderConfig};
@@ -32,10 +32,12 @@ pub fn scroll_page(key: impl Into<String>, gap: Dp, content: impl IntoChildren) 
             .justify_content(JustifyContent::CENTER)
             .align_items(AlignItems::FLEX_START))
         .child(
-            Column(Modifier::new()
-                .fill_max_width()
-                .max_width(PAGE_MAX)
-                .gap(gap))
+            Column(
+                Modifier::new()
+                    .fill_max_width()
+                    .max_width(PAGE_MAX)
+                    .gap(gap),
+            )
             .child(content)
             .child(Box(Modifier::new().height(Dp(24.0)))),
         ),
@@ -148,11 +150,7 @@ pub fn top_bar(
     }
 
     row = row.child(
-        Column(Modifier::new()
-            .gap(Dp(1.0))
-            .flex_grow(1.0)
-            .flex_shrink(1.0))
-        .child((
+        Column(Modifier::new().gap(Dp(1.0)).flex_grow(1.0).flex_shrink(1.0)).child((
             Text(title)
                 .size(Sp(22.0))
                 .font_weight(FontWeight(600))
@@ -315,11 +313,13 @@ pub fn card(children: impl IntoChildren) -> View {
 
 pub fn empty_state(icon: repose_material::Symbol, title: &str, body: &str) -> View {
     let th = theme();
-    Column(Modifier::new()
-        .fill_max_width()
-        .padding(Dp(32.0))
-        .align_items(AlignItems::CENTER)
-        .gap(Dp(10.0)))
+    Column(
+        Modifier::new()
+            .fill_max_width()
+            .padding(Dp(32.0))
+            .align_items(AlignItems::CENTER)
+            .gap(Dp(10.0)),
+    )
     .child((
         Box(Modifier::new()
             .size(Dp(64.0), Dp(64.0))
@@ -359,9 +359,7 @@ pub fn recording_topic_label(library: &Library, recording: &Recording) -> String
         .topic_id
         .as_deref()
         .and_then(|id| library.topic(id))
-        .map(|_| {
-            library.breadcrumb(recording.topic_id.as_deref().unwrap_or_default())
-        })
+        .map(|_| library.breadcrumb(recording.topic_id.as_deref().unwrap_or_default()))
         .filter(|label| !label.is_empty())
         .unwrap_or_else(|| "Inbox".to_string())
 }
@@ -371,8 +369,7 @@ pub fn recording_row(app: &Rc<App>, recording: &Recording) -> View {
     let library = app.library.get();
     let snapshot = app.playback_snapshot();
     let is_current = snapshot.recording_id.as_deref() == Some(recording.id.as_str());
-    let playing = is_current
-        && snapshot.state == crate::playback::PlayState::Playing;
+    let playing = is_current && snapshot.state == crate::playback::PlayState::Playing;
     let topic = recording_topic_label(&library, recording);
     let subtitle = format!("{}  ·  {}", format_date(recording.created_at), topic);
     let missing = !app.store.borrow().recording_file_exists(recording);
@@ -396,14 +393,26 @@ pub fn recording_row(app: &Rc<App>, recording: &Recording) -> View {
             .align_items(AlignItems::CENTER)
             .gap(Dp(12.0)))
         .child(round_icon_button(
-            if playing { Symbols::pause } else { Symbols::play_arrow },
+            if playing {
+                Symbols::pause
+            } else {
+                Symbols::play_arrow
+            },
             {
                 let app = app.clone();
                 let id = recording.id.clone();
                 move || app.toggle_recording(&id)
             },
-            if is_current { th.primary } else { th.surface_container_highest },
-            if is_current { th.on_primary } else { th.on_surface },
+            if is_current {
+                th.primary
+            } else {
+                th.surface_container_highest
+            },
+            if is_current {
+                th.on_primary
+            } else {
+                th.on_surface
+            },
             Dp(42.0),
         ))
         .child(
@@ -419,7 +428,11 @@ pub fn recording_row(app: &Rc<App>, recording: &Recording) -> View {
                     subtitle
                 })
                 .size(Sp(12.0))
-                .color(if missing { th.error } else { th.on_surface_variant })
+                .color(if missing {
+                    th.error
+                } else {
+                    th.on_surface_variant
+                })
                 .single_line(),
             )),
         )
@@ -451,15 +464,10 @@ pub fn topic_picker(app: &Rc<App>, selected: &Signal<Option<String>>) -> View {
     let library = app.library.get();
     let current = selected.get();
     let mut rows: Vec<View> = Vec::new();
-    rows.push(topic_pick_row(
-        "Inbox",
-        0,
-        current.is_none(),
-        {
-            let selected = selected.clone();
-            move || selected.set(None)
-        },
-    ));
+    rows.push(topic_pick_row("Inbox", 0, current.is_none(), {
+        let selected = selected.clone();
+        move || selected.set(None)
+    }));
     append_topic_rows(&library, None, 0, &current, selected, &mut rows);
     ScrollArea(
         Modifier::new()
@@ -468,8 +476,13 @@ pub fn topic_picker(app: &Rc<App>, selected: &Signal<Option<String>>) -> View {
             .border(Dp(1.0), theme().outline_variant, Dp(14.0))
             .clip_rounded(Dp(14.0)),
         remember_scroll_state("aareco:topic-picker"),
-        Column(Modifier::new().fill_max_width().padding(Dp(6.0)).gap(Dp(2.0)))
-            .child(rows),
+        Column(
+            Modifier::new()
+                .fill_max_width()
+                .padding(Dp(6.0))
+                .gap(Dp(2.0)),
+        )
+        .child(rows),
     )
 }
 
@@ -492,12 +505,7 @@ fn append_topic_rows(
     }
 }
 
-fn topic_pick_row(
-    name: &str,
-    depth: usize,
-    selected: bool,
-    on_click: impl Fn() + 'static,
-) -> View {
+fn topic_pick_row(name: &str, depth: usize, selected: bool, on_click: impl Fn() + 'static) -> View {
     let th = theme();
     Box(Modifier::new()
         .fill_max_width()
@@ -521,12 +529,24 @@ fn topic_pick_row(
             .align_items(AlignItems::CENTER)
             .gap(Dp(8.0)))
         .child((
-            Icon(if depth == 0 { Symbols::folder_special } else { Symbols::folder })
-                .size(Sp(16.0))
-                .color(if selected { th.primary } else { th.on_surface_variant }),
+            Icon(if depth == 0 {
+                Symbols::folder_special
+            } else {
+                Symbols::folder
+            })
+            .size(Sp(16.0))
+            .color(if selected {
+                th.primary
+            } else {
+                th.on_surface_variant
+            }),
             Text(name.to_string())
                 .size(Sp(13.0))
-                .color(if selected { th.on_surface } else { th.on_surface_variant })
+                .color(if selected {
+                    th.on_surface
+                } else {
+                    th.on_surface_variant
+                })
                 .single_line(),
             Spacer(),
             if selected {

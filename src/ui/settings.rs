@@ -1,7 +1,7 @@
 use std::rc::Rc;
 
-use repose_core::prelude::*;
 use repose_core::modifier::PaddingValues;
+use repose_core::prelude::*;
 use repose_core::text::FontWeight;
 use repose_material::Icon;
 use repose_material::material3::{Slider, Switch, SwitchConfig};
@@ -106,10 +106,7 @@ pub fn screen(app: &Rc<App>) -> View {
         })
         .collect();
 
-    let start_options = [
-        (StartTab::Record, "Record"),
-        (StartTab::Library, "Library"),
-    ];
+    let start_options = [(StartTab::Record, "Record"), (StartTab::Library, "Library")];
     let start_chips: Vec<View> = start_options
         .iter()
         .map(|(tab, label)| {
@@ -138,12 +135,7 @@ pub fn screen(app: &Rc<App>) -> View {
         .unwrap_or_else(|| "Never".to_string());
 
     let content: Vec<View> = vec![
-        top_bar(
-            "Settings",
-            Some("Local-first, no account required".to_string()),
-            None,
-            vec![],
-        ),
+        top_bar("Settings", None, None, vec![]),
         section_title("Microphone", None),
         card(Column(Modifier::new().fill_max_width().padding(Dp(10.0)).gap(Dp(2.0))).child(
             Box(Modifier::new()
@@ -339,22 +331,28 @@ pub fn screen(app: &Rc<App>) -> View {
                 }),
             )),
         ))),
+        section_title("Plugins", None),
+        card(
+            Column(Modifier::new().fill_max_width().padding(Dp(16.0)).gap(Dp(12.0))).child((
+                setting_label(
+                    "Effect folders",
+                    "VST3 and CLAP folders scanned when you add an effect.",
+                ),
+                plugin_path_rows(app, &settings.plugin_paths),
+                Row(Modifier::new().fill_max_width().flex_wrap(FlexWrap::Wrap).gap(Dp(8.0)))
+                    .child(plugin_buttons(app)),
+            )),
+        ),
         section_title("About", None),
         card(Column(Modifier::new().fill_max_width().padding(Dp(16.0)).gap(Dp(8.0))).child((
-            Row(Modifier::new().align_items(AlignItems::CENTER).gap(Dp(8.0))).child((
-                Text("aareco".to_string())
-                    .size(Sp(20.0))
-                    .font_weight(FontWeight(700))
-                    .color(th.on_surface),
-                Box(Modifier::new()
-                    .size(Dp(6.0), Dp(6.0))
-                    .background(th.primary)
-                    .clip_rounded(Dp(999.0))),
-                Text(format!("v{}", env!("CARGO_PKG_VERSION")))
-                    .size(Sp(11.0))
-                    .color(th.on_surface_variant),
-            )),
-            Text("A voice recorder with a topic tree. Audio never leaves this device unless you back it up.".to_string())
+            Text("aareco".to_string())
+                .size(Sp(20.0))
+                .font_weight(FontWeight(700))
+                .color(th.on_surface),
+            Text(format!("Version {}", env!("CARGO_PKG_VERSION")))
+                .size(Sp(11.0))
+                .color(th.on_surface_variant),
+            Text("A voice recorder with a topic tree.".to_string())
                 .size(Sp(12.0))
                 .color(th.on_surface_variant)
                 .max_lines(3),
@@ -366,6 +364,60 @@ pub fn screen(app: &Rc<App>) -> View {
     ];
 
     scroll_page("aareco:settings", Dp(12.0), content)
+}
+
+fn plugin_path_rows(app: &Rc<App>, paths: &[String]) -> View {
+    let th = theme();
+    if paths.is_empty() {
+        return Text("Only the system folders are scanned.".to_string())
+            .size(Sp(12.0))
+            .color(th.on_surface_variant);
+    }
+    let rows: Vec<View> = paths
+        .iter()
+        .map(|path| {
+            let app = app.clone();
+            let path = path.clone();
+            Row(Modifier::new()
+                .fill_max_width()
+                .align_items(AlignItems::CENTER)
+                .gap(Dp(8.0)))
+            .child((
+                Text(path.clone())
+                    .size(Sp(11.0))
+                    .color(th.on_surface_variant)
+                    .single_line()
+                    .overflow_ellipsize()
+                    .modifier(Modifier::new().flex_grow(1.0)),
+                icon_button(
+                    Symbols::close,
+                    move || app.remove_plugin_path(&path),
+                    Some(th.error),
+                ),
+            ))
+        })
+        .collect();
+    Column(Modifier::new().fill_max_width().gap(Dp(4.0))).child(rows)
+}
+
+fn plugin_buttons(app: &Rc<App>) -> Vec<View> {
+    let mut buttons = Vec::new();
+    #[cfg(all(not(target_os = "android"), not(target_arch = "wasm32")))]
+    {
+        buttons.push(crate::ui::common::secondary_button("Add folder", {
+            let app = app.clone();
+            move || app.add_plugin_path()
+        }));
+        buttons.push(crate::ui::common::secondary_button("Import .clap", {
+            let app = app.clone();
+            move || app.import_plugin_bundle()
+        }));
+    }
+    buttons.push(crate::ui::common::secondary_button("Rescan", {
+        let app = app.clone();
+        move || app.start_fx_scan()
+    }));
+    buttons
 }
 
 fn setting_label(title: &str, subtitle: &str) -> View {
@@ -419,7 +471,11 @@ fn link_row(title: &str, value: &str, on_click: impl Fn() + 'static) -> View {
             bottom: Dp(4.0),
         }))
     .child(
-        Row(Modifier::new().fill_max_width().align_items(AlignItems::CENTER).gap(Dp(12.0))).child((
+        Row(Modifier::new()
+            .fill_max_width()
+            .align_items(AlignItems::CENTER)
+            .gap(Dp(12.0)))
+        .child((
             Box(Modifier::new().flex_grow(1.0)).child(
                 Column(Modifier::new().gap(Dp(2.0))).child((
                     Text(title.to_string())
@@ -447,12 +503,7 @@ fn divider() -> View {
         .background(th.outline_variant.with_alpha_f32(0.45)))
 }
 
-fn stepper_row(
-    title: &str,
-    subtitle: &str,
-    value: u32,
-    on_step: Rc<dyn Fn(i32)>,
-) -> View {
+fn stepper_row(title: &str, subtitle: &str, value: u32, on_step: Rc<dyn Fn(i32)>) -> View {
     let th = theme();
     let back = on_step.clone();
     Row(Modifier::new()

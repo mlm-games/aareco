@@ -39,6 +39,34 @@ pub struct Recording {
     pub marks: Vec<Mark>,
     #[serde(default)]
     pub waveform: Vec<u8>,
+    #[serde(default)]
+    pub source_file: Option<String>,
+    #[serde(default)]
+    pub fx: Vec<FxSlot>,
+}
+
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub enum FxBackend {
+    Vst3,
+    Lv2,
+    Clap,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct FxSlot {
+    pub backend: FxBackend,
+    pub uri: String,
+    pub name: String,
+    #[serde(default)]
+    pub bypass: bool,
+    #[serde(default)]
+    pub params: Vec<FxParam>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct FxParam {
+    pub key: String,
+    pub value: f32,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]

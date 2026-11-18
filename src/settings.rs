@@ -1,5 +1,7 @@
 use std::path::{Path, PathBuf};
 
+use game_utils::save_store::SaveStore;
+use game_utils::storage::FsStorage;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -58,6 +60,8 @@ pub struct Settings {
     pub mark_rewind_secs: u32,
     #[serde(default = "default_mark_nudge")]
     pub mark_nudge_secs: u32,
+    #[serde(default)]
+    pub plugin_paths: Vec<String>,
 }
 
 fn default_true() -> bool {
@@ -107,32 +111,40 @@ impl Default for Settings {
             scrub_forward_secs: 15,
             mark_rewind_secs: 2,
             mark_nudge_secs: 5,
+            plugin_paths: Vec::new(),
         }
     }
 }
 
 impl Settings {
     pub fn load(root: &Path) -> Self {
-        let path = settings_path(root);
-        let Ok(bytes) = std::fs::read(&path) else {
+        let file = SettingsFile::new(root, "settings.json");
+        let Some(bytes) = file.load(&SettingsFile::is_intact_json, &[]).data else {
             return Self::default();
         };
         serde_json::from_slice(&bytes).unwrap_or_else(|e| {
-            log::warn!("ignoring settings at {}: {e}", path.display());
+            log::warn!(
+                "ignoring settings at {}: {e}",
+                settings_path(root).display()
+            );
             Self::default()
         })
     }
 
     pub fn save(&self, root: &Path) {
-        let path = settings_path(root);
         let Ok(json) = serde_json::to_vec_pretty(self) else {
             return;
         };
-        if let Err(e) = std::fs::write(&path, json) {
-            log::warn!("could not save settings at {}: {e}", path.display());
+        if let Err(e) = SettingsFile::new(root, "settings.json").write(&json) {
+            log::warn!(
+                "could not save settings at {}: {e}",
+                settings_path(root).display()
+            );
         }
     }
 }
+
+type SettingsFile = SaveStore<FsStorage>;
 
 pub fn settings_path(root: &Path) -> PathBuf {
     root.join("settings.json")

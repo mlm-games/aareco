@@ -1,7 +1,7 @@
 # Aareco
 
-A local-first voice recorder. Recordings live on the device, organised in a
-topic tree, with marks, playback, and JSON backups.
+A voice recorder organised in a topic tree, with marks, playback, effects, and
+backups.
 
 ## What it does
 
@@ -14,7 +14,9 @@ topic tree, with marks, playback, and JSON backups.
 - Adds marks while recording or during playback, nudges them, and jumps between
   them.
 - Plays recordings with variable speed, seek, scrub, and per-recording volume.
-- Backs the whole library up to a JSON file and restores it, keeping the audio
+- Applies VST3 or CLAP effects to a recording, keeping the original audio so the
+  result can be reverted or re-rendered with different settings.
+- Backs the whole library up to a folder and restores it, keeping the audio
   files in place.
 - Ships a compact layout with a bottom navigation bar and a wide layout with a
   sidebar.
@@ -26,7 +28,8 @@ Desktop data lives in `~/.local/share/aareco`:
 ```
 library.json        recordings, topics, marks, metadata
 settings.json       device, theme, playback and recording preferences
-recordings/         WAV files
+recordings/         WAV files, including rendered effect versions
+plugins/            imported CLAP plugins
 ```
 
 On Android the same layout is rooted at the app's internal data directory (will switch to game-utils crate later)
@@ -39,13 +42,15 @@ Requires Rust 1.98 and the platform audio libraries (ALSA on Linux).
 cargo run --release --bin aareco-desktop
 ```
 
-Recordings are captured through `cpal`, playback through `rodio`, and the UI is
-drawn with [Repose](https://github.com/repolevedavaj/repose).
+Recordings are captured through `cpal`, playback through `rodio`, effects run
+through Yadaw's plugin host, and the UI is drawn with
+[Repose](https://github.com/repolevedavaj/repose).
 
 The crate split keeps capture and storage independent from the UI:
 
 - `crates/recorder`: device capture, ring buffer, peaks, WAV writing, recovery.
 - `crates/store`: library model, topic tree, marks, search, backup/restore.
+- `crates/fx`: plugin hosting, effect chains, and offline rendering.
 
 ## Android
 

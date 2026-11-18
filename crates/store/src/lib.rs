@@ -1,13 +1,15 @@
-use std::fs::File;
-use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use chrono::Local;
+use game_utils::save_store::{LoadStatus, SaveStore};
+use game_utils::storage::FsStorage;
 use uuid::Uuid;
 
 pub mod model;
 
-pub use model::{LIBRARY_VERSION, Library, Mark, Recording, Topic, WAVEFORM_POINTS};
+pub use model::{
+    FxBackend, FxParam, FxSlot, LIBRARY_VERSION, Library, Mark, Recording, Topic, WAVEFORM_POINTS,
+};
 
 #[derive(Debug, thiserror::Error)]
 pub enum StoreError {
@@ -33,6 +35,10 @@ pub enum StoreError {
     Cycle,
     #[error("backup failed: {0}")]
     Backup(String),
+    #[error("could not write the library: {0}")]
+    Save(String),
+    #[error("library file at {path} is damaged and was set aside")]
+    Corrupt { path: PathBuf },
 }
 
 pub type Result<T> = std::result::Result<T, StoreError>;
@@ -51,6 +57,7 @@ fn io_error(path: &Path, source: std::io::Error) -> StoreError {
 pub struct Store {
     root: PathBuf,
     library: Library,
+    file: LibraryFile,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -74,26 +81,37 @@ pub struct RestoreResult {
     pub skipped: usize,
 }
 
+type LibraryFile = SaveStore<FsStorage>;
+
 impl Store {
     pub fn open(root: impl Into<PathBuf>) -> Result<Self> {
         let root = root.into();
         std::fs::create_dir_all(root.join("recordings")).map_err(|e| io_error(&root, e))?;
         let path = root.join("library.json");
-        let library = if path.exists() {
-            let bytes = std::fs::read(&path).map_err(|e| io_error(&path, e))?;
-            match serde_json::from_slice::<Library>(&bytes) {
-                Ok(library) => library,
-                Err(source) => {
-                    let stamp = Local::now().format("%Y%m%d-%H%M%S");
-                    let broken = root.join(format!("library.json.broken-{stamp}"));
-                    let _ = std::fs::rename(&path, &broken);
-                    return Err(StoreError::Json { path, source });
-                }
+        let file = LibraryFile::new(&root, "library.json");
+        let loaded = file.load(&LibraryFile::is_intact_json, &[]);
+        let library = match loaded.data {
+            Some(bytes) => {
+                serde_json::from_slice::<Library>(&bytes).map_err(|source| StoreError::Json {
+                    path: loaded
+                        .recovered_from
+                        .clone()
+                        .unwrap_or_else(|| path.clone()),
+                    source,
+                })?
             }
-        } else {
-            Library::new()
+            None if loaded.status == LoadStatus::Corrupt
+                || loaded.status == LoadStatus::Unreadable =>
+            {
+                return Err(StoreError::Corrupt { path });
+            }
+            None => Library::new(),
         };
-        let store = Self { root, library };
+        let store = Self {
+            root,
+            library,
+            file,
+        };
         if !store.library_path().exists() {
             store.save()?;
         }
@@ -125,26 +143,13 @@ impl Store {
     }
 
     pub fn save(&self) -> Result<()> {
-        let path = self.library_path();
-        let tmp = self.root.join("library.json.tmp");
         let json = serde_json::to_vec_pretty(&self.library).map_err(|source| StoreError::Json {
-            path: path.clone(),
+            path: self.library_path(),
             source,
         })?;
-        {
-            let mut file = File::create(&tmp).map_err(|e| io_error(&tmp, e))?;
-            file.write_all(&json).map_err(|e| io_error(&tmp, e))?;
-            file.sync_all().map_err(|e| io_error(&tmp, e))?;
-        }
-        if let Err(e) = std::fs::rename(&tmp, &path) {
-            if path.exists() {
-                let _ = std::fs::remove_file(&path);
-                std::fs::rename(&tmp, &path).map_err(|e| io_error(&path, e))?;
-            } else {
-                return Err(io_error(&path, e));
-            }
-        }
-        Ok(())
+        self.file
+            .write(&json)
+            .map_err(|e| StoreError::Save(e.to_string()))
     }
 
     pub fn add_topic(&mut self, name: &str, parent_id: Option<String>) -> Result<Topic> {
@@ -188,7 +193,13 @@ impl Store {
             if self.library.topic(parent).is_none() {
                 return Err(StoreError::TopicNotFound(parent.clone()));
             }
-            if parent == id || self.library.descendants(id).iter().any(|child| child == parent) {
+            if parent == id
+                || self
+                    .library
+                    .descendants(id)
+                    .iter()
+                    .any(|child| child == parent)
+            {
                 return Err(StoreError::Cycle);
             }
         }
@@ -313,9 +324,15 @@ impl Store {
             .iter()
             .position(|recording| recording.id == id)
             .ok_or_else(|| StoreError::RecordingNotFound(id.to_string()))?;
-        let path = self.recording_path(&self.library.recordings[index]);
-        if path.exists() {
-            std::fs::remove_file(&path).map_err(|e| io_error(&path, e))?;
+        let recording = &self.library.recordings[index];
+        let mut files = vec![self.recording_path(recording)];
+        if let Some(source) = &recording.source_file {
+            files.push(self.recordings_dir().join(source));
+        }
+        for path in files {
+            if path.exists() {
+                std::fs::remove_file(&path).map_err(|e| io_error(&path, e))?;
+            }
         }
         self.library.recordings.remove(index);
         self.save()
@@ -419,10 +436,26 @@ impl Store {
 
         let mut copied = 0usize;
         for recording in &self.library.recordings {
-            let source = self.recording_path(recording);
-            if source.exists() {
-                let target = dest.join("recordings").join(&recording.file_name);
+            let mut names = vec![recording.file_name.clone()];
+            if let Some(source) = recording
+                .source_file
+                .as_ref()
+                .filter(|source| is_safe_file_name(source))
+                && *source != recording.file_name
+            {
+                names.push(source.clone());
+            }
+            let mut copied_recording = false;
+            for name in names {
+                let source = self.recordings_dir().join(&name);
+                if !source.exists() {
+                    continue;
+                }
+                let target = dest.join("recordings").join(&name);
                 std::fs::copy(&source, &target).map_err(|e| io_error(&source, e))?;
+                copied_recording = true;
+            }
+            if copied_recording {
                 copied += 1;
             }
         }
@@ -445,10 +478,11 @@ impl Store {
     pub fn import_backup(&mut self, source: &Path) -> Result<RestoreResult> {
         let library_path = source.join("library.json");
         let bytes = std::fs::read(&library_path).map_err(|e| io_error(&library_path, e))?;
-        let backup: Library = serde_json::from_slice(&bytes).map_err(|source| StoreError::Json {
-            path: library_path,
-            source,
-        })?;
+        let backup: Library =
+            serde_json::from_slice(&bytes).map_err(|source| StoreError::Json {
+                path: library_path,
+                source,
+            })?;
 
         let mut added_topics = 0usize;
         for topic in &backup.topics {
@@ -489,9 +523,22 @@ impl Store {
                 skipped += 1;
                 continue;
             }
-            std::fs::copy(&source_file, &target_file)
-                .map_err(|e| io_error(&source_file, e))?;
+            std::fs::copy(&source_file, &target_file).map_err(|e| io_error(&source_file, e))?;
             let mut restored = recording.clone();
+            if let Some(source) = restored
+                .source_file
+                .clone()
+                .filter(|source| is_safe_file_name(source))
+            {
+                let backup_source = source_dir.join(&source);
+                let target_source = self.recordings_dir().join(&source);
+                if backup_source.is_file() && !target_source.exists() {
+                    std::fs::copy(&backup_source, &target_source)
+                        .map_err(|e| io_error(&backup_source, e))?;
+                }
+            } else {
+                restored.source_file = None;
+            }
             if restored
                 .topic_id
                 .as_deref()
@@ -536,6 +583,8 @@ mod tests {
             size_bytes: 96_000,
             marks: Vec::new(),
             waveform: vec![0; 10],
+            source_file: None,
+            fx: Vec::new(),
         }
     }
 
@@ -545,12 +594,43 @@ mod tests {
         {
             let mut store = Store::open(dir.path()).unwrap();
             let topic = store.add_topic("Work", None).unwrap();
-            store.add_recording(recording("one", Some(&topic.id))).unwrap();
+            store
+                .add_recording(recording("one", Some(&topic.id)))
+                .unwrap();
         }
         let store = Store::open(dir.path()).unwrap();
         assert_eq!(store.library().topics.len(), 1);
         assert_eq!(store.library().recordings.len(), 1);
         assert_eq!(store.stats().bytes, 96_000);
+    }
+
+    #[test]
+    fn backups_keep_processed_and_original_audio() {
+        let dir = tempfile::tempdir().unwrap();
+        let backup_parent = tempfile::tempdir().unwrap();
+        let mut store = Store::open(dir.path()).unwrap();
+        let mut processed = recording("effect", None);
+        processed.file_name = "effect.fx.wav".to_string();
+        processed.source_file = Some("effect.wav".to_string());
+        store.add_recording(processed).unwrap();
+        for name in ["effect.fx.wav", "effect.wav"] {
+            std::fs::write(store.recordings_dir().join(name), b"wav").unwrap();
+        }
+
+        let backup = store.backup_to(backup_parent.path()).unwrap();
+        assert!(backup.join("recordings/effect.fx.wav").is_file());
+        assert!(backup.join("recordings/effect.wav").is_file());
+
+        let restored_dir = tempfile::tempdir().unwrap();
+        let mut restored = Store::open(restored_dir.path()).unwrap();
+        let result = restored.import_backup(&backup).unwrap();
+        assert_eq!(result.recordings, 1);
+        assert!(restored.recordings_dir().join("effect.fx.wav").is_file());
+        assert!(restored.recordings_dir().join("effect.wav").is_file());
+        assert_eq!(
+            restored.library().recording("effect").unwrap().source_file,
+            Some("effect.wav".to_string())
+        );
     }
 
     #[test]

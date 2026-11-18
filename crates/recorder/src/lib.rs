@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU32, AtomicU64, AtomicU8, Ordering};
+use std::sync::atomic::{AtomicU8, AtomicU32, AtomicU64, Ordering};
 use std::thread::JoinHandle;
 use std::time::Duration;
 
@@ -184,13 +184,7 @@ impl Recorder {
         });
 
         let (producer, consumer) = RingBuffer::<f32>::new((sample_rate as usize * 2).max(4096));
-        let stream = build_stream(
-            &device,
-            &stream_config,
-            producer,
-            shared.clone(),
-            channels,
-        )?;
+        let stream = build_stream(&device, &stream_config, producer, shared.clone(), channels)?;
 
         let writer = WavWriter::create(&part_path, sample_rate, 1)?;
         let writer_shared = shared.clone();
@@ -205,9 +199,7 @@ impl Recorder {
             .play()
             .map_err(|e| RecorderError::Start(format!("could not start microphone: {e}")))?;
 
-        log::info!(
-            "recording from {device_name:?} at {sample_rate} Hz, {channels} channel(s)"
-        );
+        log::info!("recording from {device_name:?} at {sample_rate} Hz, {channels} channel(s)");
         Ok(Self {
             shared,
             stream: Some(stream),
@@ -238,7 +230,9 @@ impl Recorder {
     pub fn pause(&self) {
         if self.shared.state() == STATE_RECORDING {
             self.shared.set_state(STATE_PAUSED);
-            self.shared.level_bits.store(0f32.to_bits(), Ordering::Release);
+            self.shared
+                .level_bits
+                .store(0f32.to_bits(), Ordering::Release);
         }
     }
 
@@ -373,7 +367,9 @@ fn writer_loop(mut writer: WavWriter, mut consumer: Consumer<f32>, shared: Arc<S
     }
 }
 
-fn resolve_input(config: &CaptureConfig) -> Result<(cpal::Device, cpal::SupportedStreamConfig, String)> {
+fn resolve_input(
+    config: &CaptureConfig,
+) -> Result<(cpal::Device, cpal::SupportedStreamConfig, String)> {
     let host = cpal::default_host();
     let device = match &config.device {
         Some(name) => {
@@ -427,12 +423,16 @@ fn build_stream(
     match config.sample_format() {
         SampleFormat::I8 => build_typed::<i8>(device, stream_config, producer, shared, channels),
         SampleFormat::I16 => build_typed::<i16>(device, stream_config, producer, shared, channels),
-        SampleFormat::I24 => build_typed::<cpal::I24>(device, stream_config, producer, shared, channels),
+        SampleFormat::I24 => {
+            build_typed::<cpal::I24>(device, stream_config, producer, shared, channels)
+        }
         SampleFormat::I32 => build_typed::<i32>(device, stream_config, producer, shared, channels),
         SampleFormat::I64 => build_typed::<i64>(device, stream_config, producer, shared, channels),
         SampleFormat::U8 => build_typed::<u8>(device, stream_config, producer, shared, channels),
         SampleFormat::U16 => build_typed::<u16>(device, stream_config, producer, shared, channels),
-        SampleFormat::U24 => build_typed::<cpal::U24>(device, stream_config, producer, shared, channels),
+        SampleFormat::U24 => {
+            build_typed::<cpal::U24>(device, stream_config, producer, shared, channels)
+        }
         SampleFormat::U32 => build_typed::<u32>(device, stream_config, producer, shared, channels),
         SampleFormat::U64 => build_typed::<u64>(device, stream_config, producer, shared, channels),
         SampleFormat::F32 => build_typed::<f32>(device, stream_config, producer, shared, channels),
@@ -488,9 +488,7 @@ fn device_label(device: &cpal::Device) -> Option<String> {
 
 pub fn input_devices() -> Result<Vec<DeviceInfo>> {
     let host = cpal::default_host();
-    let default_name = host
-        .default_input_device()
-        .and_then(|d| device_label(&d));
+    let default_name = host.default_input_device().and_then(|d| device_label(&d));
     let mut devices = Vec::new();
     let mut seen = std::collections::HashSet::new();
     for device in host

@@ -1,17 +1,15 @@
 use std::rc::Rc;
 
 use aareco_store::Library;
-use repose_core::prelude::*;
 use repose_core::modifier::PaddingValues;
+use repose_core::prelude::*;
 use repose_core::text::FontWeight;
 use repose_material::Icon;
 use repose_ui::*;
 
 use crate::app::{App, Route};
 use crate::icons::Symbols;
-use crate::ui::common::{
-    card, empty_state, scroll_page, section_title, top_bar,
-};
+use crate::ui::common::{card, empty_state, scroll_page, section_title, top_bar};
 
 pub fn screen(app: &Rc<App>) -> View {
     let library = app.library.get();
@@ -33,10 +31,14 @@ pub fn screen(app: &Rc<App>) -> View {
                 library.recordings.len()
             )),
             None,
-            vec![crate::ui::common::icon_button(Symbols::add, {
-                let app = app.clone();
-                move || app.open_new_topic(None)
-            }, None)],
+            vec![crate::ui::common::icon_button(
+                Symbols::add,
+                {
+                    let app = app.clone();
+                    move || app.open_new_topic(None)
+                },
+                None,
+            )],
         ),
         section_title("All topics", None),
         Column(Modifier::new().fill_max_width().gap(Dp(6.0))).child(rows),
@@ -66,12 +68,7 @@ fn append_rows(
     }
 }
 
-fn topic_row(
-    app: &Rc<App>,
-    library: &Library,
-    topic: &aareco_store::Topic,
-    depth: usize,
-) -> View {
+fn topic_row(app: &Rc<App>, library: &Library, topic: &aareco_store::Topic, depth: usize) -> View {
     let th = theme();
     let count = library.recording_count(&topic.id, true);
     let id = topic.id.clone();
@@ -97,9 +94,17 @@ fn topic_row(
             .align_items(AlignItems::CENTER)
             .gap(Dp(10.0)))
         .child((
-            Icon(if depth > 1 { Symbols::folder_open } else { Symbols::folder })
-                .size(Sp(18.0))
-                .color(if depth > 1 { th.on_surface_variant } else { th.tertiary }),
+            Icon(if depth > 1 {
+                Symbols::folder_open
+            } else {
+                Symbols::folder
+            })
+            .size(Sp(18.0))
+            .color(if depth > 1 {
+                th.on_surface_variant
+            } else {
+                th.tertiary
+            }),
             Column(Modifier::new().flex_grow(1.0).gap(Dp(2.0))).child((
                 Text(topic.name.clone())
                     .size(Sp(14.0))
@@ -108,17 +113,25 @@ fn topic_row(
                     .single_line(),
                 Text(format!(
                     "{count} recording(s){}",
-                    if topic.parent_id.is_some() { " · nested" } else { "" }
+                    if topic.parent_id.is_some() {
+                        " · nested"
+                    } else {
+                        ""
+                    }
                 ))
                 .size(Sp(11.0))
                 .color(th.on_surface_variant)
                 .single_line(),
             )),
-            crate::ui::common::icon_button(Symbols::create_new_folder, {
-                let app = app.clone();
-                let id = topic.id.clone();
-                move || app.open_new_topic(Some(id.clone()))
-            }, None),
+            crate::ui::common::icon_button(
+                Symbols::create_new_folder,
+                {
+                    let app = app.clone();
+                    let id = topic.id.clone();
+                    move || app.open_new_topic(Some(id.clone()))
+                },
+                None,
+            ),
             Icon(Symbols::chevron_right)
                 .size(Sp(18.0))
                 .color(th.on_surface_variant),

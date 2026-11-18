@@ -37,10 +37,7 @@ pub fn request_microphone_permission(context: &AndroidApp) {
     }
 }
 
-fn request_permission(
-    env: &mut JNIEnv,
-    activity: &JObject,
-) -> jni::errors::Result<()> {
+fn request_permission(env: &mut JNIEnv, activity: &JObject) -> jni::errors::Result<()> {
     let permission = env.new_string("android.permission.RECORD_AUDIO")?;
     let status = env
         .call_method(

@@ -22,7 +22,13 @@ pub fn screen(app: &Rc<App>) -> View {
     let device = settings
         .device
         .clone()
-        .or_else(|| app.devices.get().iter().find(|d| d.is_default).map(|d| d.name.clone()))
+        .or_else(|| {
+            app.devices
+                .get()
+                .iter()
+                .find(|d| d.is_default)
+                .map(|d| d.name.clone())
+        })
         .unwrap_or_else(|| "Default microphone".to_string());
 
     let mut content: Vec<View> = vec![
@@ -32,28 +38,38 @@ pub fn screen(app: &Rc<App>) -> View {
             .align_items(AlignItems::CENTER))
         .child((
             Spacer(),
-            crate::ui::common::icon_button(Symbols::search, {
-                let app = app.clone();
-                move || app.nav.push(Route::Library)
-            }, None),
-            crate::ui::common::icon_button(Symbols::settings, {
-                let app = app.clone();
-                move || app.nav.push(Route::Settings)
-            }, None),
+            crate::ui::common::icon_button(
+                Symbols::search,
+                {
+                    let app = app.clone();
+                    move || app.nav.push(Route::Library)
+                },
+                None,
+            ),
+            crate::ui::common::icon_button(
+                Symbols::settings,
+                {
+                    let app = app.clone();
+                    move || app.nav.push(Route::Settings)
+                },
+                None,
+            ),
         )),
         record_hero(app, &device),
-        card(Row(Modifier::new()
-            .fill_max_width()
-            .padding(Dp(18.0))
-            .gap(Dp(16.0))
-            .align_items(AlignItems::CENTER))
-        .child((
-            stat("Recordings", stats.recordings.to_string()),
-            divider(),
-            stat("Total audio", format_duration(stats.duration_ms)),
-            divider(),
-            stat("On disk", format_bytes(stats.bytes)),
-        ))),
+        card(
+            Row(Modifier::new()
+                .fill_max_width()
+                .padding(Dp(18.0))
+                .gap(Dp(16.0))
+                .align_items(AlignItems::CENTER))
+            .child((
+                stat("Recordings", stats.recordings.to_string()),
+                divider(),
+                stat("Total audio", format_duration(stats.duration_ms)),
+                divider(),
+                stat("On disk", format_bytes(stats.bytes)),
+            )),
+        ),
     ];
 
     content.push(section_title(
@@ -68,7 +84,7 @@ pub fn screen(app: &Rc<App>) -> View {
         content.push(card(empty_state(
             Symbols::mic,
             "Nothing recorded yet",
-            "Your first voice note is one tap away. Recordings stay on this device.",
+            "Your first voice note is one tap away.",
         )));
     } else {
         let rows: Vec<View> = recent
@@ -90,11 +106,13 @@ fn record_hero(app: &Rc<App>, device: &str) -> View {
         .border(Dp(1.0), th.outline_variant.with_alpha_f32(0.55), Dp(28.0))
         .clip_rounded(Dp(28.0)))
     .child(
-        Column(Modifier::new()
-            .fill_max_width()
-            .padding(Dp(26.0))
-            .align_items(AlignItems::CENTER)
-            .gap(Dp(14.0)))
+        Column(
+            Modifier::new()
+                .fill_max_width()
+                .padding(Dp(26.0))
+                .align_items(AlignItems::CENTER)
+                .gap(Dp(14.0)),
+        )
         .child((
             Box(Modifier::new()
                 .size(Dp(176.0), Dp(176.0))
@@ -117,11 +135,7 @@ fn record_hero(app: &Rc<App>, device: &str) -> View {
                             .fill_max_size()
                             .align_items(AlignItems::CENTER)
                             .justify_content(JustifyContent::CENTER))
-                        .child((
-                            Icon(Symbols::mic)
-                                .size(Sp(46.0))
-                                .color(th.on_primary),
-                        )),
+                        .child((Icon(Symbols::mic).size(Sp(46.0)).color(th.on_primary),)),
                     ),
                 ),
             ),
@@ -130,9 +144,7 @@ fn record_hero(app: &Rc<App>, device: &str) -> View {
                 .font_weight(FontWeight(600))
                 .color(th.on_surface),
             Row(Modifier::new().align_items(AlignItems::CENTER).gap(Dp(6.0))).child((
-                Icon(Symbols::graphic_eq)
-                    .size(Sp(14.0))
-                    .color(th.secondary),
+                Icon(Symbols::graphic_eq).size(Sp(14.0)).color(th.secondary),
                 Text(device)
                     .size(Sp(12.0))
                     .color(th.on_surface_variant)

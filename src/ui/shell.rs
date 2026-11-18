@@ -1,7 +1,7 @@
 use std::rc::Rc;
 
-use repose_core::prelude::*;
 use repose_core::modifier::PaddingValues;
+use repose_core::prelude::*;
 use repose_core::text::FontWeight;
 use repose_material::Icon;
 use repose_material::material3::{
@@ -41,10 +41,7 @@ pub fn shell(app: &Rc<App>, route: Route) -> View {
     } else {
         Row(Modifier::new().fill_max_size()).child((
             sidebar(app, &route),
-            Box(Modifier::new()
-                .flex_grow(1.0)
-                .fill_max_height())
-            .child(content),
+            Box(Modifier::new().flex_grow(1.0).fill_max_height()).child(content),
         ))
     }
 }
@@ -65,20 +62,34 @@ fn sidebar(app: &Rc<App>, route: &Route) -> View {
         .background(th.surface_container_low)
         .border(Dp(1.0), th.outline_variant.with_alpha_f32(0.4), Dp(0.0)))
     .child(
-        Column(Modifier::new()
-            .fill_max_size()
-            .padding_values(PaddingValues {
-                left: Dp(14.0),
-                right: Dp(14.0),
-                top: Dp(22.0),
-                bottom: Dp(18.0),
-            })
-            .gap(Dp(6.0)))
+        Column(
+            Modifier::new()
+                .fill_max_size()
+                .padding_values(PaddingValues {
+                    left: Dp(14.0),
+                    right: Dp(14.0),
+                    top: Dp(22.0),
+                    bottom: Dp(18.0),
+                })
+                .gap(Dp(6.0)),
+        )
         .child((
             nav_row(app, Symbols::mic, "Record", selected == 0, Route::Home),
-            nav_row(app, Symbols::library_music, "Library", selected == 1, Route::Library),
+            nav_row(
+                app,
+                Symbols::library_music,
+                "Library",
+                selected == 1,
+                Route::Library,
+            ),
             nav_row(app, Symbols::folder, "Topics", selected == 2, Route::Topics),
-            nav_row(app, Symbols::settings, "Settings", selected == 3, Route::Settings),
+            nav_row(
+                app,
+                Symbols::settings,
+                "Settings",
+                selected == 3,
+                Route::Settings,
+            ),
             Spacer(),
             Box(Modifier::new()
                 .fill_max_width()
@@ -90,7 +101,7 @@ fn sidebar(app: &Rc<App>, route: &Route) -> View {
                 Column(Modifier::new().fill_max_width().gap(Dp(4.0))).child((
                     Row(Modifier::new().align_items(AlignItems::CENTER).gap(Dp(6.0))).child((
                         Icon(Symbols::storage).size(Sp(14.0)).color(th.secondary),
-                        Text("On this device".to_string())
+                        Text("Storage".to_string())
                             .size(Sp(11.0))
                             .font_weight(FontWeight(600))
                             .color(th.on_surface),
@@ -137,10 +148,15 @@ fn nav_row(
             bottom: Dp(11.0),
         }))
     .child(
-        Row(Modifier::new().align_items(AlignItems::CENTER).gap(Dp(12.0))).child((
-            Icon(symbol)
-                .size(Sp(19.0))
-                .color(if selected { th.primary } else { th.on_surface_variant }),
+        Row(Modifier::new()
+            .align_items(AlignItems::CENTER)
+            .gap(Dp(12.0)))
+        .child((
+            Icon(symbol).size(Sp(19.0)).color(if selected {
+                th.primary
+            } else {
+                th.on_surface_variant
+            }),
             Text(label.to_string())
                 .size(Sp(13.0))
                 .font_weight(if selected {
@@ -148,7 +164,11 @@ fn nav_row(
                 } else {
                     FontWeight(400)
                 })
-                .color(if selected { th.on_surface } else { th.on_surface_variant }),
+                .color(if selected {
+                    th.on_surface
+                } else {
+                    th.on_surface_variant
+                }),
         )),
     )
 }

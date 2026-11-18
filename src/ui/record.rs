@@ -1,8 +1,8 @@
 use std::rc::Rc;
 
 use aareco_recorder::RecorderState;
-use repose_core::prelude::*;
 use repose_core::modifier::PaddingValues;
+use repose_core::prelude::*;
 use repose_core::text::FontWeight;
 use repose_material::Icon;
 use repose_ui::*;
@@ -40,10 +40,14 @@ pub fn screen(app: &Rc<App>) -> View {
         .align_items(AlignItems::CENTER)
         .gap(Dp(8.0)))
     .child((
-        icon_button(Symbols::close, {
-            let app = app.clone();
-            move || app.open_discard_dialog()
-        }, None),
+        icon_button(
+            Symbols::close,
+            {
+                let app = app.clone();
+                move || app.open_discard_dialog()
+            },
+            None,
+        ),
         Column(Modifier::new().flex_grow(1.0).gap(Dp(1.0))).child((
             Text("Recording".to_string())
                 .size(Sp(20.0))
@@ -90,10 +94,12 @@ pub fn screen(app: &Rc<App>) -> View {
         .border(Dp(1.0), th.outline_variant.with_alpha_f32(0.5), Dp(22.0))
         .clip_rounded(Dp(22.0)))
     .child(
-        Column(Modifier::new()
-            .fill_max_width()
-            .padding(Dp(18.0))
-            .gap(Dp(10.0)))
+        Column(
+            Modifier::new()
+                .fill_max_width()
+                .padding(Dp(18.0))
+                .gap(Dp(10.0)),
+        )
         .child((
             waveform(
                 peaks,
@@ -120,13 +126,18 @@ pub fn screen(app: &Rc<App>) -> View {
                         .flex_grow((1.0 - level).max(0.02))),
                 )),
             ),
-            Row(Modifier::new().fill_max_width().align_items(AlignItems::CENTER)).child((
+            Row(Modifier::new()
+                .fill_max_width()
+                .align_items(AlignItems::CENTER))
+            .child((
                 Text(
                     snapshot
                         .marks
                         .last()
                         .map(|mark| format!("Last mark at {}", format_timer(mark.offset_ms)))
-                        .unwrap_or_else(|| "Drop marks on the moments you want to find again".to_string()),
+                        .unwrap_or_else(|| {
+                            "Drop marks on the moments you want to find again".to_string()
+                        }),
                 )
                 .size(Sp(11.0))
                 .color(th.on_surface_variant)
@@ -162,7 +173,11 @@ pub fn screen(app: &Rc<App>) -> View {
             Dp(62.0),
         ),
         control_button(
-            if paused { Symbols::play_arrow } else { Symbols::pause },
+            if paused {
+                Symbols::play_arrow
+            } else {
+                Symbols::pause
+            },
             if paused { "Resume" } else { "Pause" },
             th.primary,
             th.on_primary,
@@ -241,19 +256,6 @@ pub fn screen(app: &Rc<App>) -> View {
             ),
         );
     }
-    children.push(
-        Row(Modifier::new()
-            .fill_max_width()
-            .align_items(AlignItems::CENTER)
-            .justify_content(JustifyContent::CENTER)
-            .gap(Dp(6.0)))
-        .child((
-            Icon(Symbols::storage).size(Sp(12.0)).color(th.on_surface_variant),
-            Text("Audio is written straight to this device".to_string())
-                .size(Sp(11.0))
-                .color(th.on_surface_variant),
-        )),
-    );
 
     Box(Modifier::new()
         .fill_max_size()
@@ -265,10 +267,12 @@ pub fn screen(app: &Rc<App>) -> View {
             bottom: Dp(24.0),
         }))
     .child(
-        Column(Modifier::new()
-            .fill_max_width()
-            .max_width(Dp(760.0))
-            .gap(Dp(14.0)))
+        Column(
+            Modifier::new()
+                .fill_max_width()
+                .max_width(Dp(760.0))
+                .gap(Dp(14.0)),
+        )
         .child(children),
     )
 }

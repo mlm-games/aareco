@@ -1,6 +1,6 @@
+use repose_core::Dp;
 use repose_core::color::Color;
 use repose_core::locals::{ColorScheme, Theme, Typography};
-use repose_core::Dp;
 
 pub const BG: &str = "#0B0C0F";
 

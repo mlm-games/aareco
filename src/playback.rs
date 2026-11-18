@@ -56,8 +56,8 @@ pub struct Playback {
 
 impl Playback {
     pub fn new(speed: f32, volume: f32) -> std::result::Result<Self, String> {
-        let sink = DeviceSinkBuilder::open_default_sink()
-            .map_err(|e| format!("no audio output: {e}"))?;
+        let sink =
+            DeviceSinkBuilder::open_default_sink().map_err(|e| format!("no audio output: {e}"))?;
         Ok(Self {
             sink,
             player: None,
@@ -86,7 +86,8 @@ impl Playback {
         autoplay: bool,
     ) -> std::result::Result<(), String> {
         let file = File::open(path).map_err(|e| format!("could not open recording: {e}"))?;
-        let decoder = Decoder::try_from(file).map_err(|e| format!("could not decode audio: {e}"))?;
+        let decoder =
+            Decoder::try_from(file).map_err(|e| format!("could not decode audio: {e}"))?;
 
         let player = Player::connect_new(self.sink.mixer());
         player.set_volume(self.volume);

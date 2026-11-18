@@ -59,10 +59,14 @@ pub fn screen(app: &Rc<App>) -> View {
             "Library",
             Some(subtitle),
             None,
-            vec![crate::ui::common::icon_button(Symbols::folder, {
-                let app = app.clone();
-                move || app.nav.push(Route::Topics)
-            }, None)],
+            vec![crate::ui::common::icon_button(
+                Symbols::folder,
+                {
+                    let app = app.clone();
+                    move || app.nav.push(Route::Topics)
+                },
+                None,
+            )],
         ),
         TextField(
             Modifier::new().fill_max_width(),
@@ -73,27 +77,47 @@ pub fn screen(app: &Rc<App>) -> View {
             },
             TextFieldConfig {
                 placeholder: Some("Search titles, topics, marks".to_string()),
-                leading_icon: Some(Icon(Symbols::search).size(Sp(18.0)).color(th.on_surface_variant)),
+                leading_icon: Some(
+                    Icon(Symbols::search)
+                        .size(Sp(18.0))
+                        .color(th.on_surface_variant),
+                ),
                 trailing_icon: if query.is_empty() {
                     None
                 } else {
-                    Some(crate::ui::common::icon_button(Symbols::close, {
-                        let app = app.clone();
-                        move || app.search.set(String::new())
-                    }, None))
+                    Some(crate::ui::common::icon_button(
+                        Symbols::close,
+                        {
+                            let app = app.clone();
+                            move || app.search.set(String::new())
+                        },
+                        None,
+                    ))
                 },
                 single_line: true,
                 ..Default::default()
             },
         ),
-        Row(Modifier::new().fill_max_width().flex_wrap(FlexWrap::Wrap).gap(Dp(8.0))).child(chips),
+        Row(Modifier::new()
+            .fill_max_width()
+            .flex_wrap(FlexWrap::Wrap)
+            .gap(Dp(8.0)))
+        .child(chips),
         section_title("Recordings", None),
     ];
 
     if recordings.is_empty() {
         content.push(empty_state(
-            if query.is_empty() { Symbols::library_music } else { Symbols::search },
-            if query.is_empty() { "No recordings here" } else { "No matches" },
+            if query.is_empty() {
+                Symbols::library_music
+            } else {
+                Symbols::search
+            },
+            if query.is_empty() {
+                "No recordings here"
+            } else {
+                "No matches"
+            },
             if query.is_empty() {
                 "Record something new, or browse a different topic."
             } else {
@@ -116,7 +140,11 @@ pub fn topic_detail(app: &Rc<App>, topic_id: &str) -> View {
     let library = app.library.get();
     let topic = library.topic(topic_id).cloned();
     let Some(topic) = topic else {
-        return empty_state(Symbols::folder, "Topic not found", "It may have been deleted.");
+        return empty_state(
+            Symbols::folder,
+            "Topic not found",
+            "It may have been deleted.",
+        );
     };
     let breadcrumb = library.breadcrumb(topic_id);
     let mut recordings: Vec<Recording> = app
@@ -136,35 +164,45 @@ pub fn topic_detail(app: &Rc<App>, topic_id: &str) -> View {
         }
     };
     let actions = vec![
-        crate::ui::common::icon_button(Symbols::create_new_folder, {
-            let app = app.clone();
-            let id = topic_id.to_string();
-            move || app.open_new_topic(Some(id.clone()))
-        }, None),
-        crate::ui::common::icon_button(Symbols::edit, {
-            let app = app.clone();
-            let id = topic_id.to_string();
-            move || app.open_rename_topic(&id)
-        }, None),
-        crate::ui::common::icon_button(Symbols::delete, {
-            let app = app.clone();
-            let id = topic_id.to_string();
-            move || app.open_delete_topic(&id)
-        }, Some(th.error)),
-    ];
-
-    let mut content: Vec<View> = vec![
-        top_bar(
-            topic.name.clone(),
-            Some(if breadcrumb.is_empty() {
-                format!("{} recording(s)", recordings.len())
-            } else {
-                format!("{breadcrumb} · {} recording(s)", recordings.len())
-            }),
-            Some(Rc::new(back)),
-            actions,
+        crate::ui::common::icon_button(
+            Symbols::create_new_folder,
+            {
+                let app = app.clone();
+                let id = topic_id.to_string();
+                move || app.open_new_topic(Some(id.clone()))
+            },
+            None,
+        ),
+        crate::ui::common::icon_button(
+            Symbols::edit,
+            {
+                let app = app.clone();
+                let id = topic_id.to_string();
+                move || app.open_rename_topic(&id)
+            },
+            None,
+        ),
+        crate::ui::common::icon_button(
+            Symbols::delete,
+            {
+                let app = app.clone();
+                let id = topic_id.to_string();
+                move || app.open_delete_topic(&id)
+            },
+            Some(th.error),
         ),
     ];
+
+    let mut content: Vec<View> = vec![top_bar(
+        topic.name.clone(),
+        Some(if breadcrumb.is_empty() {
+            format!("{} recording(s)", recordings.len())
+        } else {
+            format!("{breadcrumb} · {} recording(s)", recordings.len())
+        }),
+        Some(Rc::new(back)),
+        actions,
+    )];
 
     if !children.is_empty() {
         let mut child_views: Vec<View> = Vec::new();
@@ -204,10 +242,12 @@ pub fn topic_detail(app: &Rc<App>, topic_id: &str) -> View {
                 ),
             );
         }
-        content.push(Column(Modifier::new().fill_max_width().gap(Dp(6.0))).child((
-            section_title("Topics", None),
-            Column(Modifier::new().fill_max_width().gap(Dp(6.0))).child(child_views),
-        )));
+        content.push(
+            Column(Modifier::new().fill_max_width().gap(Dp(6.0))).child((
+                section_title("Topics", None),
+                Column(Modifier::new().fill_max_width().gap(Dp(6.0))).child(child_views),
+            )),
+        );
     }
 
     content.push(section_title("Recordings", None));
@@ -247,10 +287,14 @@ pub fn inbox(app: &Rc<App>) -> View {
         "Inbox",
         Some(format!("{} unsorted recording(s)", recordings.len())),
         Some(Rc::new(back)),
-        vec![crate::ui::common::icon_button(Symbols::create_new_folder, {
-            let app = app.clone();
-            move || app.open_new_topic(None)
-        }, None)],
+        vec![crate::ui::common::icon_button(
+            Symbols::create_new_folder,
+            {
+                let app = app.clone();
+                move || app.open_new_topic(None)
+            },
+            None,
+        )],
     )];
     if recordings.is_empty() {
         content.push(empty_state(

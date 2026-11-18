@@ -1,0 +1,17 @@
+[package]
+name = "aareco-fx"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Audio effect chains for Aareco"
+
+[dependencies]
+anyhow.workspace = true
+hound.workspace = true
+aareco-store.workspace = true
+yadaw-plugin-api.workspace = true
+yadaw-plugin-host.workspace = true
+
+[dev-dependencies]
+tempfile = "3"

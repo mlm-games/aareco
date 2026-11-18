@@ -11,6 +11,7 @@ rust-version = "1.98"
 [workspace.dependencies]
 aareco-recorder = { path = "crates/recorder" }
 aareco-store = { path = "crates/store" }
+aareco-fx = { path = "crates/fx" }
 
 anyhow = "1"
 log = "0.4"
@@ -21,6 +22,10 @@ serde_json = "1"
 chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1", features = ["v4", "serde"] }
 directories = "6"
+game-utils = "0.4"
+hound = "3.5"
+yadaw-plugin-api = { git = "https://github.com/mlm-games/yadaw", rev = "0a840ddbfa03be47a76f5102d9f82a1ee5d4e89b" }
+yadaw-plugin-host = { git = "https://github.com/mlm-games/yadaw", rev = "0a840ddbfa03be47a76f5102d9f82a1ee5d4e89b", default-features = false, features = ["vst3-host", "clap-host"] }
 cpal = "0.18"
 rtrb = "0.4"
 parking_lot = "0.13"
@@ -99,10 +104,14 @@ serde_json.workspace = true
 chrono.workspace = true
 uuid.workspace = true
 directories.workspace = true
+game-utils.workspace = true
+yadaw-plugin-api.workspace = true
+hound.workspace = true
 rodio.workspace = true
 
 aareco-recorder.workspace = true
 aareco-store.workspace = true
+aareco-fx.workspace = true
 
 repose-core.workspace = true
 repose-ui.workspace = true

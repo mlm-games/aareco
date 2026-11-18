@@ -32,6 +32,9 @@ fn app_root(_s: &mut Scheduler, _rc: &RenderContext) -> View {
         Err(err) => return startup_error(err),
     };
 
+    app.poll_fx_scan();
+    app.poll_fx_render();
+
     let start_applied = remember_mutable(|| false);
     if !*start_applied.get() {
         start_applied.set(true);
@@ -87,10 +90,7 @@ fn app_root(_s: &mut Scheduler, _rc: &RenderContext) -> View {
             .system_bars_padding()
             .ime_padding()
             .background(theme().background))
-        .child((
-            content,
-            ui::dialogs::dialog(&app),
-        ))
+        .child((content, ui::dialogs::dialog(&app)))
     })
 }
 
@@ -101,11 +101,13 @@ fn startup_error(message: &str) -> View {
         .background(th.background)
         .padding(Dp(32.0)))
     .child(
-        Column(Modifier::new()
-            .fill_max_size()
-            .align_items(AlignItems::CENTER)
-            .justify_content(JustifyContent::CENTER)
-            .gap(Dp(12.0)))
+        Column(
+            Modifier::new()
+                .fill_max_size()
+                .align_items(AlignItems::CENTER)
+                .justify_content(JustifyContent::CENTER)
+                .gap(Dp(12.0)),
+        )
         .child((
             Text("Aareco could not open its library")
                 .size(Sp(20.0))
@@ -142,9 +144,7 @@ pub fn run_desktop() -> anyhow::Result<()> {
 
 #[cfg(target_os = "android")]
 #[unsafe(no_mangle)]
-pub extern "C" fn android_main(
-    android_app: winit::platform::android::activity::AndroidApp,
-) {
+pub extern "C" fn android_main(android_app: winit::platform::android::activity::AndroidApp) {
     rlobkit_app_events::android_log::init(
         env!("CARGO_PKG_NAME"),
         concat!(env!("CARGO_PKG_NAME"), "=info"),

@@ -60,8 +60,7 @@ impl WavWriter {
             .open(&part_path)
             .map_err(|e| file_error(&part_path, e))?;
         let mut file = BufWriter::new(file);
-        write_header(&mut file, 0, sample_rate, channels)
-            .map_err(|e| file_error(&part_path, e))?;
+        write_header(&mut file, 0, sample_rate, channels).map_err(|e| file_error(&part_path, e))?;
         file.flush().map_err(|e| file_error(&part_path, e))?;
         Ok(Self {
             file,
@@ -236,10 +235,7 @@ pub fn recover_partial(path: &Path) -> Result<Option<WavInfo>> {
 
 pub fn inspect_wav(path: &Path) -> Result<WavInfo> {
     let mut file = File::open(path).map_err(|e| file_error(path, e))?;
-    let file_len = file
-        .metadata()
-        .map_err(|e| file_error(path, e))?
-        .len();
+    let file_len = file.metadata().map_err(|e| file_error(path, e))?.len();
     if file_len < HEADER_LEN {
         return Err(file_error(
             path,
@@ -384,10 +380,7 @@ mod tests {
         let bytes = std::fs::read(&info.path).unwrap();
         assert_eq!(&bytes[0..4], b"RIFF");
         assert_eq!(&bytes[8..12], b"WAVE");
-        assert_eq!(
-            u32::from_le_bytes(bytes[40..44].try_into().unwrap()),
-            8
-        );
+        assert_eq!(u32::from_le_bytes(bytes[40..44].try_into().unwrap()), 8);
         assert_eq!(bytes.len(), 44 + 8);
     }
 

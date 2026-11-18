@@ -2,14 +2,14 @@ use std::cell::RefCell;
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::rc::Rc;
+use std::sync::{Arc, Mutex};
 
+use aareco_fx::{EffectInfo, FxChain};
 use aareco_recorder::{
     CaptureConfig, DeviceInfo, Mark as RecorderMark, Recorder, RecorderSnapshot, StopResult,
     downsample_peaks, input_devices, recover_partial_files, wav,
 };
-use aareco_store::{
-    Library, Mark, Recording, Store, WAVEFORM_POINTS, now_ms,
-};
+use aareco_store::{FxParam, FxSlot, Library, Mark, Recording, Store, WAVEFORM_POINTS, now_ms};
 use chrono::Local;
 use repose_core::prelude::*;
 use repose_material::material3::{DialogState, show_simple_snackbar};
@@ -82,6 +82,8 @@ pub enum DialogKind {
     MoveRecording(String),
     DefaultTopic,
     Microphone,
+    AddEffect,
+    EffectParams(usize),
     Error(String),
 }
 
@@ -103,6 +105,38 @@ pub struct App {
     pub search: Signal<String>,
     pub library_topic: Signal<Option<String>>,
     pub startup_warning: RefCell<Option<String>>,
+    pub fx_scan: RefCell<FxScan>,
+    fx_results: Arc<Mutex<Option<FxScanResult>>>,
+    pub fx_render: RefCell<Option<FxRenderJob>>,
+    fx_render_result: Arc<Mutex<Option<std::result::Result<(), String>>>>,
+    pub fx_recording: RefCell<Option<String>>,
+    pub fx_params: RefCell<Vec<yadaw_plugin_api::UnifiedParamInfo>>,
+    pub fx_values: RefCell<Vec<FxParam>>,
+    pub fx_search: Signal<String>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub enum FxScanStatus {
+    #[default]
+    Idle,
+    Scanning,
+    Ready,
+    Failed(String),
+}
+
+#[derive(Default)]
+pub struct FxScan {
+    pub status: FxScanStatus,
+    pub effects: Vec<EffectInfo>,
+}
+
+type FxScanResult = std::result::Result<Vec<EffectInfo>, String>;
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct FxRenderJob {
+    pub recording_id: String,
+    pub source: String,
+    pub output_name: String,
 }
 
 impl App {
@@ -154,6 +188,14 @@ impl App {
             search: signal(String::new()),
             library_topic: signal(None),
             startup_warning: RefCell::new(startup_warning),
+            fx_scan: RefCell::new(FxScan::default()),
+            fx_results: Arc::new(Mutex::new(None)),
+            fx_render: RefCell::new(None),
+            fx_render_result: Arc::new(Mutex::new(None)),
+            fx_recording: RefCell::new(None),
+            fx_params: RefCell::new(Vec::new()),
+            fx_values: RefCell::new(Vec::new()),
+            fx_search: signal(String::new()),
         })
     }
 
@@ -253,9 +295,7 @@ impl App {
     pub fn add_mark(&self) {
         if let Some(session) = self.session.borrow().as_ref() {
             let count = session.recorder.snapshot().marks.len() + 1;
-            session
-                .recorder
-                .mark(Some(format!("Mark {count}")));
+            session.recorder.mark(Some(format!("Mark {count}")));
         }
     }
 
@@ -402,6 +442,8 @@ impl App {
             size_bytes,
             marks,
             waveform,
+            source_file: None,
+            fx: Vec::new(),
         };
 
         let result = self.store.borrow_mut().add_recording(recording);
@@ -465,13 +507,7 @@ impl App {
     }
 
     fn load_recording(&self, id: &str) -> bool {
-        let Some(recording) = self
-            .store
-            .borrow()
-            .library()
-            .recording(id)
-            .cloned()
-        else {
+        let Some(recording) = self.store.borrow().library().recording(id).cloned() else {
             self.toast("Recording not found");
             return false;
         };
@@ -500,6 +536,13 @@ impl App {
     }
 
     pub fn player_toggle(&self) {
+        if self.playback_snapshot().recording_id.is_none()
+            && let Route::Player { id } = self.current_route()
+            && self.load_recording(&id)
+        {
+            request_frame();
+            return;
+        }
         if let Some(player) = self.playback.borrow_mut().as_mut()
             && let Err(err) = player.toggle()
         {
@@ -543,25 +586,27 @@ impl App {
     }
 
     pub fn add_mark_to_recording(&self, id: &str, offset_ms: u64) {
-        match self.store.borrow_mut().add_mark(id, offset_ms, None) {
+        let result = self.store.borrow_mut().add_mark(id, offset_ms, None);
+        match result {
             Ok(_) => self.refresh(),
             Err(err) => self.toast(err.to_string()),
         }
     }
 
     pub fn delete_mark(&self, recording_id: &str, mark_id: &str) {
-        match self.store.borrow_mut().delete_mark(recording_id, mark_id) {
+        let result = self.store.borrow_mut().delete_mark(recording_id, mark_id);
+        match result {
             Ok(()) => self.refresh(),
             Err(err) => self.toast(err.to_string()),
         }
     }
 
     pub fn nudge_mark(&self, recording_id: &str, mark_id: &str, delta_secs: i32) {
-        match self
-            .store
-            .borrow_mut()
-            .nudge_mark(recording_id, mark_id, delta_secs as i64 * 1000)
-        {
+        let result =
+            self.store
+                .borrow_mut()
+                .nudge_mark(recording_id, mark_id, delta_secs as i64 * 1000);
+        match result {
             Ok(()) => self.refresh(),
             Err(err) => self.toast(err.to_string()),
         }
@@ -639,7 +684,11 @@ impl App {
     }
 
     pub fn open_delete_recording(&self, id: &str) {
-        self.open_dialog(DialogKind::DeleteRecording(id.to_string()), String::new(), None);
+        self.open_dialog(
+            DialogKind::DeleteRecording(id.to_string()),
+            String::new(),
+            None,
+        );
     }
 
     pub fn open_move_recording(&self, id: &str) {
@@ -649,7 +698,11 @@ impl App {
             .library()
             .recording(id)
             .and_then(|recording| recording.topic_id.clone());
-        self.open_dialog(DialogKind::MoveRecording(id.to_string()), String::new(), topic);
+        self.open_dialog(
+            DialogKind::MoveRecording(id.to_string()),
+            String::new(),
+            topic,
+        );
     }
 
     pub fn open_new_topic(&self, parent: Option<String>) {
@@ -660,11 +713,7 @@ impl App {
         let Some(topic) = self.store.borrow().library().topic(id).cloned() else {
             return;
         };
-        self.open_dialog(
-            DialogKind::RenameTopic(id.to_string()),
-            topic.name,
-            None,
-        );
+        self.open_dialog(DialogKind::RenameTopic(id.to_string()), topic.name, None);
     }
 
     pub fn open_delete_topic(&self, id: &str) {
@@ -690,7 +739,8 @@ impl App {
             DialogKind::DiscardRecording => self.confirm_discard_recording(),
             DialogKind::RenameRecording(id) => {
                 let title = self.dialog_title.get();
-                match self.store.borrow_mut().rename_recording(&id, &title) {
+                let result = self.store.borrow_mut().rename_recording(&id, &title);
+                match result {
                     Ok(()) => {
                         self.refresh();
                         self.close_dialog();
@@ -700,7 +750,8 @@ impl App {
             }
             DialogKind::RenameTopic(id) => {
                 let name = self.dialog_title.get();
-                match self.store.borrow_mut().rename_topic(&id, &name) {
+                let result = self.store.borrow_mut().rename_topic(&id, &name);
+                match result {
                     Ok(()) => {
                         self.refresh();
                         self.close_dialog();
@@ -710,7 +761,8 @@ impl App {
             }
             DialogKind::NewTopic { parent } => {
                 let name = self.dialog_title.get();
-                match self.store.borrow_mut().add_topic(&name, parent) {
+                let result = self.store.borrow_mut().add_topic(&name, parent);
+                match result {
                     Ok(_) => {
                         self.refresh();
                         self.close_dialog();
@@ -725,7 +777,8 @@ impl App {
                         player.stop();
                     }
                 }
-                match self.store.borrow_mut().delete_recording(&id) {
+                let result = self.store.borrow_mut().delete_recording(&id);
+                match result {
                     Ok(()) => {
                         self.refresh();
                         self.close_dialog();
@@ -738,14 +791,16 @@ impl App {
                 }
             }
             DialogKind::DeleteTopic(id) => {
-                match self.store.borrow_mut().delete_topic(&id) {
+                let result = self.store.borrow_mut().delete_topic(&id);
+                match result {
                     Ok(result) => {
                         if self.library_topic.get().as_deref() == Some(id.as_str()) {
                             self.library_topic.set(None);
                         }
                         self.refresh();
                         self.close_dialog();
-                        if matches!(self.current_route(), Route::Topic { id: current } if current == id) {
+                        if matches!(self.current_route(), Route::Topic { id: current } if current == id)
+                        {
                             self.nav.pop();
                         }
                         self.toast(format!(
@@ -758,7 +813,8 @@ impl App {
             }
             DialogKind::MoveRecording(id) => {
                 let topic = self.dialog_topic.get();
-                match self.store.borrow_mut().move_recording(&id, topic) {
+                let result = self.store.borrow_mut().move_recording(&id, topic);
+                match result {
                     Ok(()) => {
                         self.refresh();
                         self.close_dialog();
@@ -775,8 +831,443 @@ impl App {
                 self.close_dialog();
             }
             DialogKind::Microphone => self.close_dialog(),
+            DialogKind::AddEffect => self.close_dialog(),
+            DialogKind::EffectParams(_) => self.save_effect_params(),
             DialogKind::Error(_) => self.close_dialog(),
         }
+    }
+
+    pub fn start_fx_scan(&self) {
+        {
+            let mut scan = self.fx_scan.borrow_mut();
+            if scan.status == FxScanStatus::Scanning {
+                return;
+            }
+            scan.status = FxScanStatus::Scanning;
+            scan.effects.clear();
+        }
+        if let Ok(mut slot) = self.fx_results.lock() {
+            *slot = None;
+        }
+        let results = self.fx_results.clone();
+        let paths = self.plugin_paths();
+        std::thread::spawn(move || {
+            let scan = aareco_fx::scan_effect_infos(48_000.0, &paths).map_err(|e| e.to_string());
+            if let Ok(mut slot) = results.lock() {
+                *slot = Some(scan);
+            }
+            request_frame();
+        });
+        self.pump_frames();
+    }
+
+    pub fn plugin_paths(&self) -> Vec<PathBuf> {
+        let mut paths = Vec::new();
+        let managed = crate::paths::plugins_dir();
+        if managed.exists() {
+            paths.push(managed);
+        }
+        for path in self.settings.get().plugin_paths {
+            let path = PathBuf::from(path);
+            if path.exists() && !paths.contains(&path) {
+                paths.push(path);
+            }
+        }
+        paths
+    }
+
+    fn pump_frames(&self) {
+        std::thread::spawn(|| {
+            for _ in 0..240 {
+                std::thread::sleep(std::time::Duration::from_millis(250));
+                request_frame();
+            }
+        });
+    }
+
+    pub fn poll_fx_scan(&self) {
+        if self.fx_scan.borrow().status != FxScanStatus::Scanning {
+            return;
+        }
+        let ready = self.fx_results.lock().ok().and_then(|mut slot| slot.take());
+        let Some(result) = ready else {
+            return;
+        };
+        let mut scan = self.fx_scan.borrow_mut();
+        match result {
+            Ok(effects) => {
+                scan.effects = effects;
+                scan.status = FxScanStatus::Ready;
+            }
+            Err(err) => scan.status = FxScanStatus::Failed(err),
+        }
+    }
+
+    pub fn open_add_effect(&self, recording_id: &str) {
+        *self.fx_recording.borrow_mut() = Some(recording_id.to_string());
+        self.fx_search.set(String::new());
+        if matches!(
+            self.fx_scan.borrow().status,
+            FxScanStatus::Idle | FxScanStatus::Failed(_)
+        ) {
+            self.start_fx_scan();
+        }
+        self.open_dialog(DialogKind::AddEffect, String::new(), None);
+    }
+
+    pub fn add_effect(&self, effect: &EffectInfo) {
+        let Some(id) = self.fx_recording.borrow().clone() else {
+            return;
+        };
+        let slot = FxSlot {
+            backend: effect.backend,
+            uri: effect.uri.clone(),
+            name: effect.name.clone(),
+            bypass: false,
+            params: Vec::new(),
+        };
+        let result = self
+            .store
+            .borrow_mut()
+            .update_recording(&id, |recording| recording.fx.push(slot));
+        match result {
+            Ok(()) => {
+                self.refresh();
+                self.close_dialog();
+            }
+            Err(err) => self.toast(err.to_string()),
+        }
+    }
+
+    pub fn remove_effect(&self, recording_id: &str, index: usize) {
+        let result = self
+            .store
+            .borrow_mut()
+            .update_recording(recording_id, |recording| {
+                if index < recording.fx.len() {
+                    recording.fx.remove(index);
+                }
+            });
+        match result {
+            Ok(()) => self.refresh(),
+            Err(err) => self.toast(err.to_string()),
+        }
+    }
+
+    pub fn set_effect_bypass(&self, recording_id: &str, index: usize, bypass: bool) {
+        let result = self
+            .store
+            .borrow_mut()
+            .update_recording(recording_id, |recording| {
+                if let Some(slot) = recording.fx.get_mut(index) {
+                    slot.bypass = bypass;
+                }
+            });
+        match result {
+            Ok(()) => self.refresh(),
+            Err(err) => self.toast(err.to_string()),
+        }
+    }
+
+    pub fn move_effect(&self, recording_id: &str, index: usize, delta: isize) {
+        let result = self
+            .store
+            .borrow_mut()
+            .update_recording(recording_id, |recording| {
+                let target = index as isize + delta;
+                if index < recording.fx.len()
+                    && target >= 0
+                    && (target as usize) < recording.fx.len()
+                {
+                    recording.fx.swap(index, target as usize);
+                }
+            });
+        match result {
+            Ok(()) => self.refresh(),
+            Err(err) => self.toast(err.to_string()),
+        }
+    }
+
+    pub fn open_effect_params(&self, recording_id: &str, index: usize) {
+        let Some(recording) = self
+            .store
+            .borrow()
+            .library()
+            .recording(recording_id)
+            .cloned()
+        else {
+            return;
+        };
+        let Some(slot) = recording.fx.get(index).cloned() else {
+            return;
+        };
+        match aareco_fx::describe(&slot, recording.sample_rate as f64) {
+            Ok(params) => {
+                let values = params
+                    .iter()
+                    .filter(|param| !param.is_hidden)
+                    .map(|param| {
+                        let key = aareco_fx::param_key(&param.key);
+                        let stored = slot
+                            .params
+                            .iter()
+                            .find(|existing| existing.key == key)
+                            .map(|existing| existing.value);
+                        let range = (param.max - param.min).abs().max(1e-6);
+                        let value =
+                            stored.unwrap_or(((param.default - param.min) / range).clamp(0.0, 1.0));
+                        FxParam { key, value }
+                    })
+                    .collect();
+                *self.fx_params.borrow_mut() = params;
+                *self.fx_values.borrow_mut() = values;
+                *self.fx_recording.borrow_mut() = Some(recording_id.to_string());
+                self.open_dialog(DialogKind::EffectParams(index), slot.name.clone(), None);
+            }
+            Err(err) => self.error_dialog(format!("Could not read the effect: {err}")),
+        }
+    }
+
+    pub fn set_effect_param(&self, key: &str, value: f32) {
+        if let Some(param) = self
+            .fx_values
+            .borrow_mut()
+            .iter_mut()
+            .find(|param| param.key == key)
+        {
+            param.value = value.clamp(0.0, 1.0);
+        }
+    }
+
+    pub fn save_effect_params(&self) {
+        let DialogKind::EffectParams(index) = self.dialog.get() else {
+            return;
+        };
+        let Some(recording_id) = self.fx_recording.borrow().clone() else {
+            return;
+        };
+        let visible: Vec<String> = self
+            .fx_params
+            .borrow()
+            .iter()
+            .filter(|param| !param.is_hidden)
+            .map(|param| aareco_fx::param_key(&param.key))
+            .collect();
+        let values: Vec<FxParam> = self
+            .fx_values
+            .borrow()
+            .iter()
+            .filter(|param| visible.contains(&param.key))
+            .cloned()
+            .collect();
+        let result = self
+            .store
+            .borrow_mut()
+            .update_recording(&recording_id, |recording| {
+                if let Some(slot) = recording.fx.get_mut(index) {
+                    slot.params = values;
+                }
+            });
+        match result {
+            Ok(()) => {
+                self.refresh();
+                self.close_dialog();
+            }
+            Err(err) => self.toast(err.to_string()),
+        }
+    }
+
+    pub fn apply_effects(&self, recording_id: &str) {
+        if self.fx_render.borrow().is_some() {
+            self.toast("Effects are already being applied");
+            return;
+        }
+        let Some(recording) = self
+            .store
+            .borrow()
+            .library()
+            .recording(recording_id)
+            .cloned()
+        else {
+            return;
+        };
+        if recording.fx.iter().all(|slot| slot.bypass) {
+            self.toast("Add an effect first");
+            return;
+        }
+        let source = recording
+            .source_file
+            .clone()
+            .unwrap_or_else(|| recording.file_name.clone());
+        let input = self.store.borrow().recordings_dir().join(&source);
+        if !input.exists() {
+            self.error_dialog("The original audio file is missing.".to_string());
+            return;
+        }
+        let output_name = format!("{}.fx.wav", recording.id);
+        let output = self.store.borrow().recordings_dir().join(&output_name);
+        if let Some(player) = self.playback.borrow_mut().as_mut() {
+            player.stop();
+        }
+        let job = FxRenderJob {
+            recording_id: recording.id.clone(),
+            source,
+            output_name,
+        };
+        *self.fx_render.borrow_mut() = Some(job);
+        if let Ok(mut slot) = self.fx_render_result.lock() {
+            *slot = None;
+        }
+
+        let slots = recording.fx.clone();
+        let sample_rate = recording.sample_rate as f64;
+        let result_slot = self.fx_render_result.clone();
+        std::thread::spawn(move || {
+            let result = FxChain::new(&slots, sample_rate)
+                .and_then(|mut chain| chain.render_wav(&input, &output))
+                .map_err(|err| err.to_string());
+            if let Ok(mut slot) = result_slot.lock() {
+                *slot = Some(result);
+            }
+            request_frame();
+        });
+        self.pump_frames();
+    }
+
+    pub fn poll_fx_render(&self) {
+        let Some(job) = self.fx_render.borrow().as_ref().cloned() else {
+            return;
+        };
+        let ready = self
+            .fx_render_result
+            .lock()
+            .ok()
+            .and_then(|mut slot| slot.take());
+        let Some(result) = ready else {
+            return;
+        };
+        *self.fx_render.borrow_mut() = None;
+        if let Err(err) = result {
+            self.error_dialog(format!("Could not apply the effects: {err}"));
+            return;
+        }
+        let output = self.store.borrow().recordings_dir().join(&job.output_name);
+        let peaks = wav::read_peaks(&output, WAVEFORM_POINTS).unwrap_or_default();
+        let size = std::fs::metadata(&output)
+            .map(|meta| meta.len())
+            .unwrap_or(0);
+        let result = self
+            .store
+            .borrow_mut()
+            .update_recording(&job.recording_id, |recording| {
+                recording.file_name = job.output_name.clone();
+                recording.source_file = Some(job.source.clone());
+                recording.size_bytes = size;
+                recording.waveform = peaks;
+            });
+        match result {
+            Ok(()) => {
+                self.refresh();
+                self.toast("Effects applied");
+            }
+            Err(err) => self.toast(err.to_string()),
+        }
+    }
+
+    pub fn revert_effects(&self, recording_id: &str) {
+        let Some(recording) = self
+            .store
+            .borrow()
+            .library()
+            .recording(recording_id)
+            .cloned()
+        else {
+            return;
+        };
+        let Some(source) = recording.source_file.clone() else {
+            return;
+        };
+        let path = self.store.borrow().recordings_dir().join(&source);
+        if !path.exists() {
+            self.error_dialog("The original audio file is missing.".to_string());
+            return;
+        }
+        if let Some(player) = self.playback.borrow_mut().as_mut() {
+            player.stop();
+        }
+        let stale = self
+            .store
+            .borrow()
+            .recordings_dir()
+            .join(&recording.file_name);
+        let peaks = wav::read_peaks(&path, WAVEFORM_POINTS).unwrap_or_default();
+        let size = std::fs::metadata(&path).map(|meta| meta.len()).unwrap_or(0);
+        let result = self
+            .store
+            .borrow_mut()
+            .update_recording(recording_id, |recording| {
+                recording.file_name = source;
+                recording.source_file = None;
+                recording.size_bytes = size;
+                recording.waveform = peaks;
+            });
+        match result {
+            Ok(()) => {
+                if stale != path {
+                    let _ = std::fs::remove_file(&stale);
+                }
+                self.refresh();
+                self.toast("Original restored");
+            }
+            Err(err) => self.toast(err.to_string()),
+        }
+    }
+
+    pub fn remove_plugin_path(&self, path: &str) {
+        self.update_settings(|settings| settings.plugin_paths.retain(|kept| kept != path));
+        self.start_fx_scan();
+    }
+
+    #[cfg(all(not(target_os = "android"), not(target_arch = "wasm32")))]
+    pub fn add_plugin_path(&self) {
+        let Some(directory) = rlobkit_dialogs::blocking_pick_directory("Choose a plugin folder")
+        else {
+            return;
+        };
+        let path = directory.to_string_lossy().to_string();
+        if self.settings.get().plugin_paths.contains(&path) {
+            return;
+        }
+        self.update_settings(|settings| settings.plugin_paths.push(path));
+        self.start_fx_scan();
+    }
+
+    #[cfg(all(not(target_os = "android"), not(target_arch = "wasm32")))]
+    pub fn import_plugin_bundle(&self) {
+        let files = rlobkit_dialogs::blocking_pick_files("Import a CLAP plugin", &["clap"]);
+        if files.is_empty() {
+            return;
+        }
+        let directory = crate::paths::plugins_dir();
+        if let Err(err) = std::fs::create_dir_all(&directory) {
+            self.error_dialog(format!("Could not create the plugin folder: {err}"));
+            return;
+        }
+        let mut imported = 0usize;
+        for file in files {
+            let Some(name) = file.file_name() else {
+                continue;
+            };
+            if std::fs::copy(&file, directory.join(name)).is_ok() {
+                imported += 1;
+            }
+        }
+        if imported == 0 {
+            self.error_dialog("Could not copy the plugin into the library".to_string());
+            return;
+        }
+        self.start_fx_scan();
+        self.toast(format!("Imported {imported} plugin(s)"));
     }
 
     pub fn can_go_back(&self) -> bool {
@@ -800,7 +1291,8 @@ impl App {
     pub fn backup_now(&self) {
         #[cfg(all(not(target_os = "android"), not(target_arch = "wasm32")))]
         {
-            let Some(directory) = rlobkit_dialogs::blocking_pick_directory("Choose a backup folder")
+            let Some(directory) =
+                rlobkit_dialogs::blocking_pick_directory("Choose a backup folder")
             else {
                 return;
             };
@@ -826,7 +1318,8 @@ impl App {
             else {
                 return;
             };
-            match self.store.borrow_mut().import_backup(&directory) {
+            let result = self.store.borrow_mut().import_backup(&directory);
+            match result {
                 Ok(result) => {
                     self.refresh();
                     self.toast(format!(
@@ -886,7 +1379,9 @@ fn adopt_existing_files(store: &mut Store) {
         .library()
         .recordings
         .iter()
-        .map(|recording| recording.file_name.clone())
+        .flat_map(|recording| {
+            std::iter::once(recording.file_name.clone()).chain(recording.source_file.clone())
+        })
         .collect();
 
     for recovered in recover_partial_files(&dir) {
@@ -904,15 +1399,22 @@ fn adopt_existing_files(store: &mut Store) {
         let id = unique_id(store, &recovered.path);
         let recording = Recording {
             id,
-            title: format!("Recovered · {}", crate::ui::common::timestamp_date(created_at)),
+            title: format!(
+                "Recovered · {}",
+                crate::ui::common::timestamp_date(created_at)
+            ),
             file_name: file_name.clone(),
             topic_id: None,
             created_at,
             duration_ms: recovered.duration_ms,
             sample_rate: recovered.sample_rate,
-            size_bytes: std::fs::metadata(&recovered.path).map(|m| m.len()).unwrap_or(0),
+            size_bytes: std::fs::metadata(&recovered.path)
+                .map(|m| m.len())
+                .unwrap_or(0),
             marks: Vec::new(),
             waveform: recovered.peaks,
+            source_file: None,
+            fx: Vec::new(),
         };
         if store.add_recording(recording).is_ok() {
             known.insert(file_name);
@@ -927,7 +1429,16 @@ fn adopt_existing_files(store: &mut Store) {
         if path.extension().and_then(|e| e.to_str()) != Some("wav") {
             continue;
         }
-        let Some(file_name) = path.file_name().map(|name| name.to_string_lossy().into_owned())
+        if path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| name.ends_with(".fx.wav"))
+        {
+            continue;
+        }
+        let Some(file_name) = path
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned())
         else {
             continue;
         };
@@ -941,7 +1452,10 @@ fn adopt_existing_files(store: &mut Store) {
         let id = unique_id(store, &path);
         let recording = Recording {
             id,
-            title: format!("Recovered · {}", crate::ui::common::timestamp_date(created_at)),
+            title: format!(
+                "Recovered · {}",
+                crate::ui::common::timestamp_date(created_at)
+            ),
             file_name: file_name.clone(),
             topic_id: None,
             created_at,
@@ -950,6 +1464,8 @@ fn adopt_existing_files(store: &mut Store) {
             size_bytes: std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0),
             marks: Vec::new(),
             waveform: wav::read_peaks(&path, WAVEFORM_POINTS).unwrap_or_default(),
+            source_file: None,
+            fx: Vec::new(),
         };
         if store.add_recording(recording).is_ok() {
             known.insert(file_name);
