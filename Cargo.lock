@@ -5194,9 +5194,9 @@ dependencies = [
 
 [[package]]
 name = "vst3-host"
-version = "0.10.0"
+version = "0.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "57a1b316200861ab8b9f634c587e882b796cb2fa8005d9f6c6d21df42386e896"
+checksum = "e87482a285f626fb5f77e172c7d61727c83face514abd558be64f795fad0d7e7"
 dependencies = [
  "core-foundation 0.10.1",
  "crossbeam-queue",
@@ -6121,8 +6121,8 @@ checksum = "e450f9b2ed1dff33c94c12589a87338689467b9c4f5d8a5710bd09a847d2c8a7"
 
 [[package]]
 name = "yadaw-plugin-api"
-version = "0.11.5"
-source = "git+https://github.com/mlm-games/yadaw?rev=0a840ddbfa03be47a76f5102d9f82a1ee5d4e89b#0a840ddbfa03be47a76f5102d9f82a1ee5d4e89b"
+version = "0.11.6"
+source = "git+https://github.com/mlm-games/yadaw?rev=699f633#699f63385fa77401802827988de59e804a3df612"
 dependencies = [
  "anyhow",
  "serde",
@@ -6130,8 +6130,8 @@ dependencies = [
 
 [[package]]
 name = "yadaw-plugin-host"
-version = "0.11.5"
-source = "git+https://github.com/mlm-games/yadaw?rev=0a840ddbfa03be47a76f5102d9f82a1ee5d4e89b#0a840ddbfa03be47a76f5102d9f82a1ee5d4e89b"
+version = "0.11.6"
+source = "git+https://github.com/mlm-games/yadaw?rev=699f633#699f63385fa77401802827988de59e804a3df612"
 dependencies = [
  "anyhow",
  "clack-extensions",
