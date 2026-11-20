@@ -16,6 +16,8 @@ backups.
 - Plays recordings with variable speed, seek, scrub, and per-recording volume.
 - Applies VST3 or CLAP effects to a recording, keeping the original audio so the
   result can be reverted or re-rendered with different settings.
+- Creates reusable effect templates; a chosen default is copied into every new
+  recording and rendered in the background after saving.
 - Backs the whole library up to a folder and restores it, keeping the audio
   files in place.
 - Ships a compact layout with a bottom navigation bar and a wide layout with a
@@ -26,7 +28,7 @@ backups.
 Desktop data lives in `~/.local/share/aareco`:
 
 ```
-library.json        recordings, topics, marks, metadata
+library.json        recordings, topics, effect templates, marks, metadata
 settings.json       device, theme, playback and recording preferences
 recordings/         WAV files, including rendered effect versions
 plugins/            imported CLAP plugins

@@ -1,5 +1,5 @@
 use std::cell::RefCell;
-use std::collections::HashSet;
+use std::collections::{HashSet, VecDeque};
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
@@ -82,6 +82,10 @@ pub enum DialogKind {
     MoveRecording(String),
     DefaultTopic,
     Microphone,
+    NewTemplate,
+    RenameTemplate(String),
+    SaveAsTemplate(String),
+    SelectTemplate(String),
     AddEffect,
     EffectParams(usize),
     Error(String),
@@ -101,15 +105,16 @@ pub struct App {
     pub dialog: Signal<DialogKind>,
     pub dialog_title: Signal<String>,
     pub dialog_topic: Signal<Option<String>>,
+    pub dialog_template: Signal<TemplateChoice>,
     pub snackbar: SnackbarController,
     pub search: Signal<String>,
     pub library_topic: Signal<Option<String>>,
     pub startup_warning: RefCell<Option<String>>,
     pub fx_scan: RefCell<FxScan>,
     fx_results: Arc<Mutex<Option<FxScanResult>>>,
-    pub fx_render: RefCell<Option<FxRenderJob>>,
+    pub fx_render: RefCell<VecDeque<FxRenderJob>>,
     fx_render_result: Arc<Mutex<Option<std::result::Result<(), String>>>>,
-    pub fx_recording: RefCell<Option<String>>,
+    pub fx_owner: RefCell<Option<FxOwner>>,
     pub fx_params: RefCell<Vec<yadaw_plugin_api::UnifiedParamInfo>>,
     pub fx_values: RefCell<Vec<FxParam>>,
     pub fx_search: Signal<String>,
@@ -133,10 +138,24 @@ pub struct FxScan {
 type FxScanResult = std::result::Result<Vec<EffectInfo>, String>;
 
 #[derive(Clone, Debug, PartialEq)]
+pub enum TemplateChoice {
+    Default,
+    None,
+    Template(String),
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum FxOwner {
+    Recording(String),
+    Template(String),
+}
+
+#[derive(Clone, Debug, PartialEq)]
 pub struct FxRenderJob {
     pub recording_id: String,
     pub source: String,
     pub output_name: String,
+    pub fx: Vec<FxSlot>,
 }
 
 impl App {
@@ -184,15 +203,16 @@ impl App {
             dialog: signal(DialogKind::None),
             dialog_title: signal(String::new()),
             dialog_topic: signal(None),
+            dialog_template: signal(TemplateChoice::Default),
             snackbar: SnackbarController::ambient(),
             search: signal(String::new()),
             library_topic: signal(None),
             startup_warning: RefCell::new(startup_warning),
             fx_scan: RefCell::new(FxScan::default()),
             fx_results: Arc::new(Mutex::new(None)),
-            fx_render: RefCell::new(None),
+            fx_render: RefCell::new(VecDeque::new()),
             fx_render_result: Arc::new(Mutex::new(None)),
-            fx_recording: RefCell::new(None),
+            fx_owner: RefCell::new(None),
             fx_params: RefCell::new(Vec::new()),
             fx_values: RefCell::new(Vec::new()),
             fx_search: signal(String::new()),
@@ -354,7 +374,29 @@ impl App {
                 pending.meta.topic_id.clone(),
             )
         };
+        self.dialog_template.set(TemplateChoice::Default);
         self.open_dialog(DialogKind::SaveRecording, title, topic);
+    }
+
+    pub fn choose_template(&self, choice: TemplateChoice) {
+        self.dialog_template.set(choice);
+    }
+
+    fn resolve_template_fx(&self) -> Vec<FxSlot> {
+        let chosen = match self.dialog_template.get() {
+            TemplateChoice::Default => self.settings.get().default_template,
+            TemplateChoice::None => None,
+            TemplateChoice::Template(id) => Some(id),
+        };
+        let Some(id) = chosen else {
+            return Vec::new();
+        };
+        self.store
+            .borrow()
+            .library()
+            .template(&id)
+            .map(|template| template.fx.clone())
+            .unwrap_or_default()
     }
 
     pub fn save_pending(&self) {
@@ -368,6 +410,7 @@ impl App {
     }
 
     fn auto_save_pending(&self) {
+        self.dialog_template.set(TemplateChoice::Default);
         let (title, topic) = {
             let pending = self.pending.borrow();
             let Some(pending) = pending.as_ref() else {
@@ -403,6 +446,7 @@ impl App {
         }
         if !path.exists() {
             *self.pending.borrow_mut() = Some(pending);
+            self.open_save_dialog();
             self.toast("The recording file is missing. Nothing was saved.");
             return;
         }
@@ -443,12 +487,13 @@ impl App {
             marks,
             waveform,
             source_file: None,
-            fx: Vec::new(),
+            fx: self.resolve_template_fx(),
         };
 
         let result = self.store.borrow_mut().add_recording(recording);
         if let Err(err) = result {
             *self.pending.borrow_mut() = Some(pending);
+            self.open_save_dialog();
             self.toast(format!("Could not save the recording: {err}"));
             return;
         }
@@ -456,6 +501,7 @@ impl App {
         self.refresh();
         self.close_dialog();
         self.toast("Recording saved");
+        self.enqueue_render(&pending.meta.id);
         self.open_player(&pending.meta.id);
     }
 
@@ -672,6 +718,133 @@ impl App {
         }
     }
 
+    pub fn open_new_template(&self) {
+        *self.fx_owner.borrow_mut() = None;
+        self.open_dialog(DialogKind::NewTemplate, String::new(), None);
+    }
+
+    pub fn open_rename_template(&self, id: &str) {
+        let Some(template) = self.store.borrow().library().template(id).cloned() else {
+            return;
+        };
+        self.open_dialog(
+            DialogKind::RenameTemplate(id.to_string()),
+            template.name,
+            None,
+        );
+    }
+
+    pub fn open_save_as_template(&self, recording_id: &str) {
+        self.open_dialog(
+            DialogKind::SaveAsTemplate(recording_id.to_string()),
+            String::new(),
+            None,
+        );
+    }
+
+    pub fn open_select_template(&self, recording_id: &str) {
+        self.open_dialog(
+            DialogKind::SelectTemplate(recording_id.to_string()),
+            String::new(),
+            None,
+        );
+    }
+
+    pub fn create_template(&self, name: String, fx: Vec<FxSlot>) {
+        match self.store.borrow_mut().add_template(&name, fx) {
+            Ok(template) => {
+                self.refresh();
+                self.close_dialog();
+                self.toast(format!("Template \"{}\" created", template.name));
+            }
+            Err(err) => self.toast(err.to_string()),
+        }
+    }
+
+    pub fn duplicate_template(&self, id: &str) {
+        match self.store.borrow_mut().duplicate_template(id) {
+            Ok(template) => {
+                self.refresh();
+                self.toast(format!("Duplicated as \"{}\"", template.name));
+            }
+            Err(err) => self.toast(err.to_string()),
+        }
+    }
+
+    pub fn delete_template(&self, id: &str) {
+        let result = self.store.borrow_mut().delete_template(id);
+        match result {
+            Ok(()) => {
+                if self.settings.get().default_template.as_deref() == Some(id) {
+                    self.update_settings(|settings| settings.default_template = None);
+                }
+                self.refresh();
+                self.toast("Template deleted");
+            }
+            Err(err) => self.toast(err.to_string()),
+        }
+    }
+
+    pub fn set_default_template(&self, id: Option<String>) {
+        self.update_settings(|settings| settings.default_template = id);
+    }
+
+    pub fn clear_effects(&self, recording_id: &str) {
+        let processed = self
+            .store
+            .borrow()
+            .library()
+            .recording(recording_id)
+            .is_some_and(|recording| recording.source_file.is_some());
+        let result = self
+            .store
+            .borrow_mut()
+            .update_recording(recording_id, |recording| recording.fx.clear());
+        match result {
+            Ok(()) => {
+                if processed {
+                    self.revert_effects(recording_id);
+                }
+                self.refresh();
+                self.close_dialog();
+                if !processed {
+                    self.toast("Effects cleared");
+                }
+            }
+            Err(err) => self.toast(err.to_string()),
+        }
+    }
+
+    pub fn apply_template(&self, recording_id: &str, template_id: &str) {
+        let Some(template) = self.store.borrow().library().template(template_id).cloned() else {
+            return;
+        };
+        let processed = self
+            .store
+            .borrow()
+            .library()
+            .recording(recording_id)
+            .is_some_and(|recording| recording.source_file.is_some());
+        let result = self
+            .store
+            .borrow_mut()
+            .update_recording(recording_id, |recording| recording.fx = template.fx);
+        match result {
+            Ok(()) => {
+                self.refresh();
+                self.close_dialog();
+                if processed {
+                    if let Some(player) = self.playback.borrow_mut().as_mut() {
+                        player.stop();
+                    }
+                    self.enqueue_render(recording_id);
+                }
+                self.toast(format!("Template \"{}\" applied", template.name));
+            }
+            Err(err) => self.toast(err.to_string()),
+        }
+    }
+
     pub fn open_rename_recording(&self, id: &str) {
         let Some(recording) = self.store.borrow().library().recording(id).cloned() else {
             return;
@@ -831,6 +1004,52 @@ impl App {
                 self.close_dialog();
             }
             DialogKind::Microphone => self.close_dialog(),
+            DialogKind::NewTemplate => {
+                let name = self.dialog_title.get();
+                let fx = self
+                    .fx_owner
+                    .borrow()
+                    .as_ref()
+                    .and_then(|owner| match owner {
+                        FxOwner::Recording(id) => self
+                            .store
+                            .borrow()
+                            .library()
+                            .recording(id)
+                            .map(|recording| recording.fx.clone()),
+                        FxOwner::Template(id) => self
+                            .store
+                            .borrow()
+                            .library()
+                            .template(id)
+                            .map(|template| template.fx.clone()),
+                    })
+                    .unwrap_or_default();
+                self.create_template(name, fx);
+            }
+            DialogKind::RenameTemplate(id) => {
+                let name = self.dialog_title.get();
+                let result = self.store.borrow_mut().rename_template(&id, &name);
+                match result {
+                    Ok(()) => {
+                        self.refresh();
+                        self.close_dialog();
+                    }
+                    Err(err) => self.toast(err.to_string()),
+                }
+            }
+            DialogKind::SaveAsTemplate(recording_id) => {
+                let name = self.dialog_title.get();
+                let fx = self
+                    .store
+                    .borrow()
+                    .library()
+                    .recording(&recording_id)
+                    .map(|recording| recording.fx.clone())
+                    .unwrap_or_default();
+                self.create_template(name, fx);
+            }
+            DialogKind::SelectTemplate(_) => self.close_dialog(),
             DialogKind::AddEffect => self.close_dialog(),
             DialogKind::EffectParams(_) => self.save_effect_params(),
             DialogKind::Error(_) => self.close_dialog(),
@@ -903,8 +1122,60 @@ impl App {
         }
     }
 
-    pub fn open_add_effect(&self, recording_id: &str) {
-        *self.fx_recording.borrow_mut() = Some(recording_id.to_string());
+    fn owner_fx(&self, owner: &FxOwner) -> Vec<FxSlot> {
+        let store = self.store.borrow();
+        match owner {
+            FxOwner::Recording(id) => store
+                .library()
+                .recording(id)
+                .map(|recording| recording.fx.clone())
+                .unwrap_or_default(),
+            FxOwner::Template(id) => store
+                .library()
+                .template(id)
+                .map(|template| template.fx.clone())
+                .unwrap_or_default(),
+        }
+    }
+
+    fn owner_sample_rate(&self, owner: &FxOwner) -> f64 {
+        match owner {
+            FxOwner::Recording(id) => self
+                .store
+                .borrow()
+                .library()
+                .recording(id)
+                .map(|recording| recording.sample_rate as f64)
+                .unwrap_or(48_000.0),
+            FxOwner::Template(_) => 48_000.0,
+        }
+    }
+
+    fn update_owner_fx(
+        &self,
+        owner: &FxOwner,
+        update: impl FnOnce(&mut Vec<FxSlot>),
+    ) -> Result<(), String> {
+        match owner {
+            FxOwner::Recording(id) => {
+                let mut store = self.store.borrow_mut();
+                store
+                    .update_recording(id, |recording| update(&mut recording.fx))
+                    .map_err(|err| err.to_string())
+            }
+            FxOwner::Template(id) => {
+                let mut slots = self.owner_fx(owner);
+                update(&mut slots);
+                let mut store = self.store.borrow_mut();
+                store
+                    .update_template(id, slots)
+                    .map_err(|err| err.to_string())
+            }
+        }
+    }
+
+    pub fn open_add_effect(&self, owner: FxOwner) {
+        *self.fx_owner.borrow_mut() = Some(owner);
         self.fx_search.set(String::new());
         if matches!(
             self.fx_scan.borrow().status,
@@ -916,7 +1187,7 @@ impl App {
     }
 
     pub fn add_effect(&self, effect: &EffectInfo) {
-        let Some(id) = self.fx_recording.borrow().clone() else {
+        let Some(owner) = self.fx_owner.borrow().clone() else {
             return;
         };
         let slot = FxSlot {
@@ -926,10 +1197,7 @@ impl App {
             bypass: false,
             params: Vec::new(),
         };
-        let result = self
-            .store
-            .borrow_mut()
-            .update_recording(&id, |recording| recording.fx.push(slot));
+        let result = self.update_owner_fx(&owner, |slots| slots.push(slot));
         match result {
             Ok(()) => {
                 self.refresh();
@@ -939,69 +1207,48 @@ impl App {
         }
     }
 
-    pub fn remove_effect(&self, recording_id: &str, index: usize) {
-        let result = self
-            .store
-            .borrow_mut()
-            .update_recording(recording_id, |recording| {
-                if index < recording.fx.len() {
-                    recording.fx.remove(index);
-                }
-            });
+    pub fn remove_effect(&self, owner: &FxOwner, index: usize) {
+        let result = self.update_owner_fx(owner, |slots| {
+            if index < slots.len() {
+                slots.remove(index);
+            }
+        });
         match result {
             Ok(()) => self.refresh(),
             Err(err) => self.toast(err.to_string()),
         }
     }
 
-    pub fn set_effect_bypass(&self, recording_id: &str, index: usize, bypass: bool) {
-        let result = self
-            .store
-            .borrow_mut()
-            .update_recording(recording_id, |recording| {
-                if let Some(slot) = recording.fx.get_mut(index) {
-                    slot.bypass = bypass;
-                }
-            });
+    pub fn set_effect_bypass(&self, owner: &FxOwner, index: usize, bypass: bool) {
+        let result = self.update_owner_fx(owner, |slots| {
+            if let Some(slot) = slots.get_mut(index) {
+                slot.bypass = bypass;
+            }
+        });
         match result {
             Ok(()) => self.refresh(),
             Err(err) => self.toast(err.to_string()),
         }
     }
 
-    pub fn move_effect(&self, recording_id: &str, index: usize, delta: isize) {
-        let result = self
-            .store
-            .borrow_mut()
-            .update_recording(recording_id, |recording| {
-                let target = index as isize + delta;
-                if index < recording.fx.len()
-                    && target >= 0
-                    && (target as usize) < recording.fx.len()
-                {
-                    recording.fx.swap(index, target as usize);
-                }
-            });
+    pub fn move_effect(&self, owner: &FxOwner, index: usize, delta: isize) {
+        let result = self.update_owner_fx(owner, |slots| {
+            let target = index as isize + delta;
+            if index < slots.len() && target >= 0 && (target as usize) < slots.len() {
+                slots.swap(index, target as usize);
+            }
+        });
         match result {
             Ok(()) => self.refresh(),
             Err(err) => self.toast(err.to_string()),
         }
     }
 
-    pub fn open_effect_params(&self, recording_id: &str, index: usize) {
-        let Some(recording) = self
-            .store
-            .borrow()
-            .library()
-            .recording(recording_id)
-            .cloned()
-        else {
+    pub fn open_effect_params(&self, owner: &FxOwner, index: usize) {
+        let Some(slot) = self.owner_fx(owner).get(index).cloned() else {
             return;
         };
-        let Some(slot) = recording.fx.get(index).cloned() else {
-            return;
-        };
-        match aareco_fx::describe(&slot, recording.sample_rate as f64) {
+        match aareco_fx::describe(&slot, self.owner_sample_rate(owner)) {
             Ok(params) => {
                 let values = params
                     .iter()
@@ -1021,7 +1268,7 @@ impl App {
                     .collect();
                 *self.fx_params.borrow_mut() = params;
                 *self.fx_values.borrow_mut() = values;
-                *self.fx_recording.borrow_mut() = Some(recording_id.to_string());
+                *self.fx_owner.borrow_mut() = Some(owner.clone());
                 self.open_dialog(DialogKind::EffectParams(index), slot.name.clone(), None);
             }
             Err(err) => self.error_dialog(format!("Could not read the effect: {err}")),
@@ -1043,7 +1290,7 @@ impl App {
         let DialogKind::EffectParams(index) = self.dialog.get() else {
             return;
         };
-        let Some(recording_id) = self.fx_recording.borrow().clone() else {
+        let Some(owner) = self.fx_owner.borrow().clone() else {
             return;
         };
         let visible: Vec<String> = self
@@ -1060,14 +1307,11 @@ impl App {
             .filter(|param| visible.contains(&param.key))
             .cloned()
             .collect();
-        let result = self
-            .store
-            .borrow_mut()
-            .update_recording(&recording_id, |recording| {
-                if let Some(slot) = recording.fx.get_mut(index) {
-                    slot.params = values;
-                }
-            });
+        let result = self.update_owner_fx(&owner, |slots| {
+            if let Some(slot) = slots.get_mut(index) {
+                slot.params = values;
+            }
+        });
         match result {
             Ok(()) => {
                 self.refresh();
@@ -1077,8 +1321,88 @@ impl App {
         }
     }
 
+    pub fn is_rendering(&self, recording_id: &str) -> bool {
+        self.fx_render
+            .borrow()
+            .iter()
+            .any(|job| job.recording_id == recording_id)
+    }
+
+    pub fn enqueue_render(&self, recording_id: &str) {
+        if self.is_rendering(recording_id) {
+            return;
+        }
+        let Some(recording) = self
+            .store
+            .borrow()
+            .library()
+            .recording(recording_id)
+            .cloned()
+        else {
+            return;
+        };
+        if recording.fx.iter().all(|slot| slot.bypass) {
+            return;
+        }
+        let source = recording
+            .source_file
+            .clone()
+            .unwrap_or_else(|| recording.file_name.clone());
+        if !self.store.borrow().recordings_dir().join(&source).exists() {
+            self.error_dialog("The original audio file is missing.".to_string());
+            return;
+        }
+        let job = FxRenderJob {
+            recording_id: recording.id.clone(),
+            source,
+            output_name: format!("{}.fx.wav", recording.id),
+            fx: recording.fx.clone(),
+        };
+        let start = self.fx_render.borrow().is_empty();
+        self.fx_render.borrow_mut().push_back(job);
+        if start {
+            self.start_render();
+        }
+    }
+
+    fn start_render(&self) {
+        let Some(job) = self.fx_render.borrow().front().cloned() else {
+            return;
+        };
+        let Some(recording) = self
+            .store
+            .borrow()
+            .library()
+            .recording(&job.recording_id)
+            .cloned()
+        else {
+            self.fx_render.borrow_mut().pop_front();
+            self.start_render();
+            return;
+        };
+        let dir = self.store.borrow().recordings_dir();
+        let input = dir.join(&job.source);
+        let output = dir.join(&job.output_name);
+        let slots = recording.fx.clone();
+        let sample_rate = recording.sample_rate as f64;
+        if let Ok(mut slot) = self.fx_render_result.lock() {
+            *slot = None;
+        }
+        let result_slot = self.fx_render_result.clone();
+        std::thread::spawn(move || {
+            let result = FxChain::new(&slots, sample_rate)
+                .and_then(|mut chain| chain.render_wav(&input, &output))
+                .map_err(|err| err.to_string());
+            if let Ok(mut slot) = result_slot.lock() {
+                *slot = Some(result);
+            }
+            request_frame();
+        });
+        self.pump_frames();
+    }
+
     pub fn apply_effects(&self, recording_id: &str) {
-        if self.fx_render.borrow().is_some() {
+        if !self.fx_render.borrow().is_empty() {
             self.toast("Effects are already being applied");
             return;
         }
@@ -1095,47 +1419,14 @@ impl App {
             self.toast("Add an effect first");
             return;
         }
-        let source = recording
-            .source_file
-            .clone()
-            .unwrap_or_else(|| recording.file_name.clone());
-        let input = self.store.borrow().recordings_dir().join(&source);
-        if !input.exists() {
-            self.error_dialog("The original audio file is missing.".to_string());
-            return;
-        }
-        let output_name = format!("{}.fx.wav", recording.id);
-        let output = self.store.borrow().recordings_dir().join(&output_name);
         if let Some(player) = self.playback.borrow_mut().as_mut() {
             player.stop();
         }
-        let job = FxRenderJob {
-            recording_id: recording.id.clone(),
-            source,
-            output_name,
-        };
-        *self.fx_render.borrow_mut() = Some(job);
-        if let Ok(mut slot) = self.fx_render_result.lock() {
-            *slot = None;
-        }
-
-        let slots = recording.fx.clone();
-        let sample_rate = recording.sample_rate as f64;
-        let result_slot = self.fx_render_result.clone();
-        std::thread::spawn(move || {
-            let result = FxChain::new(&slots, sample_rate)
-                .and_then(|mut chain| chain.render_wav(&input, &output))
-                .map_err(|err| err.to_string());
-            if let Ok(mut slot) = result_slot.lock() {
-                *slot = Some(result);
-            }
-            request_frame();
-        });
-        self.pump_frames();
+        self.enqueue_render(recording_id);
     }
 
     pub fn poll_fx_render(&self) {
-        let Some(job) = self.fx_render.borrow().as_ref().cloned() else {
+        let Some(job) = self.fx_render.borrow().front().cloned() else {
             return;
         };
         let ready = self
@@ -1146,32 +1437,52 @@ impl App {
         let Some(result) = ready else {
             return;
         };
-        *self.fx_render.borrow_mut() = None;
+        self.fx_render.borrow_mut().pop_front();
         if let Err(err) = result {
             self.error_dialog(format!("Could not apply the effects: {err}"));
-            return;
-        }
-        let output = self.store.borrow().recordings_dir().join(&job.output_name);
-        let peaks = wav::read_peaks(&output, WAVEFORM_POINTS).unwrap_or_default();
-        let size = std::fs::metadata(&output)
-            .map(|meta| meta.len())
-            .unwrap_or(0);
-        let result = self
+        } else if self
             .store
-            .borrow_mut()
-            .update_recording(&job.recording_id, |recording| {
-                recording.file_name = job.output_name.clone();
-                recording.source_file = Some(job.source.clone());
-                recording.size_bytes = size;
-                recording.waveform = peaks;
-            });
-        match result {
-            Ok(()) => {
-                self.refresh();
-                self.toast("Effects applied");
+            .borrow()
+            .library()
+            .recording(&job.recording_id)
+            .map(|recording| recording.fx != job.fx)
+            .unwrap_or(true)
+        {
+            self.toast("Effects changed during rendering");
+        } else {
+            let output = self.store.borrow().recordings_dir().join(&job.output_name);
+            let peaks = wav::read_peaks(&output, WAVEFORM_POINTS).unwrap_or_default();
+            let size = std::fs::metadata(&output)
+                .map(|meta| meta.len())
+                .unwrap_or(0);
+            let result = self
+                .store
+                .borrow_mut()
+                .update_recording(&job.recording_id, |recording| {
+                    recording.file_name = job.output_name.clone();
+                    recording.source_file = Some(job.source.clone());
+                    recording.size_bytes = size;
+                    recording.waveform = peaks;
+                });
+            match result {
+                Ok(()) => {
+                    self.refresh();
+                    if self.current_route()
+                        == (Route::Player {
+                            id: job.recording_id.clone(),
+                        })
+                    {
+                        if let Some(player) = self.playback.borrow_mut().as_mut() {
+                            player.stop();
+                        }
+                        self.load_recording(&job.recording_id);
+                    }
+                    self.toast("Effects applied");
+                }
+                Err(err) => self.toast(err.to_string()),
             }
-            Err(err) => self.toast(err.to_string()),
         }
+        self.start_render();
     }
 
     pub fn revert_effects(&self, recording_id: &str) {
@@ -1323,8 +1634,8 @@ impl App {
                 Ok(result) => {
                     self.refresh();
                     self.toast(format!(
-                        "Restored {} recording(s) and {} topic(s) · {} skipped",
-                        result.recordings, result.topics, result.skipped
+                        "Restored {} recording(s), {} topic(s) and {} template(s) · {} skipped",
+                        result.recordings, result.topics, result.templates, result.skipped
                     ));
                 }
                 Err(err) => self.error_dialog(format!("Restore failed: {err}")),

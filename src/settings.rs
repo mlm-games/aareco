@@ -62,6 +62,8 @@ pub struct Settings {
     pub mark_nudge_secs: u32,
     #[serde(default)]
     pub plugin_paths: Vec<String>,
+    #[serde(default)]
+    pub default_template: Option<String>,
 }
 
 fn default_true() -> bool {
@@ -112,6 +114,7 @@ impl Default for Settings {
             mark_rewind_secs: 2,
             mark_nudge_secs: 5,
             plugin_paths: Vec::new(),
+            default_template: None,
         }
     }
 }

@@ -9,9 +9,9 @@ use repose_material::material3::{Slider, TextField, TextFieldConfig};
 use repose_ui::scroll::{ScrollArea, remember_scroll_state};
 use repose_ui::*;
 
-use crate::app::{App, DialogKind};
+use crate::app::{App, DialogKind, TemplateChoice};
 use crate::icons::Symbols;
-use crate::ui::common::{primary_button, secondary_button, slider_config, topic_picker};
+use crate::ui::common::{chip, primary_button, secondary_button, slider_config, topic_picker};
 
 pub fn dialog(app: &Rc<App>) -> View {
     let kind = app.dialog.get();
@@ -39,6 +39,10 @@ pub fn dialog(app: &Rc<App>) -> View {
         DialogKind::MoveRecording(_) => move_body(app),
         DialogKind::DefaultTopic => default_topic_body(app),
         DialogKind::Microphone => microphone_body(app),
+        DialogKind::NewTemplate => rename_body(app, "New template"),
+        DialogKind::RenameTemplate(_) => rename_body(app, "Rename template"),
+        DialogKind::SaveAsTemplate(_) => rename_body(app, "Save as template"),
+        DialogKind::SelectTemplate(id) => select_template_body(app, id),
         DialogKind::AddEffect => add_effect_body(app),
         DialogKind::EffectParams(index) => effect_params_body(app, *index),
         DialogKind::Error(message) => error_body(app, message),
@@ -126,6 +130,15 @@ fn save_body(app: &Rc<App>) -> View {
             .font_weight(FontWeight(500))
             .color(th.on_surface_variant),
         topic_picker(app, &app.dialog_topic),
+        Text("Effects".to_string())
+            .size(Sp(12.0))
+            .font_weight(FontWeight(500))
+            .color(th.on_surface_variant),
+        Row(Modifier::new()
+            .fill_max_width()
+            .flex_wrap(FlexWrap::Wrap)
+            .gap(Dp(6.0)))
+        .child(save_template_chips(app)),
         error,
         actions(vec![
             secondary_button("Discard", {
@@ -138,6 +151,49 @@ fn save_body(app: &Rc<App>) -> View {
             }),
         ]),
     ))
+}
+
+fn save_template_chips(app: &Rc<App>) -> Vec<View> {
+    let choice = app.dialog_template.get();
+    let default_name = app
+        .settings
+        .get()
+        .default_template
+        .and_then(|id| {
+            app.library
+                .get()
+                .templates
+                .into_iter()
+                .find(|template| template.id == id)
+                .map(|template| template.name)
+        })
+        .unwrap_or_else(|| "None".to_string());
+    let mut chips = vec![
+        chip(
+            &format!("Default ({default_name})"),
+            choice == TemplateChoice::Default,
+            {
+                let app = app.clone();
+                move || app.choose_template(TemplateChoice::Default)
+            },
+        ),
+        chip("None", choice == TemplateChoice::None, {
+            let app = app.clone();
+            move || app.choose_template(TemplateChoice::None)
+        }),
+    ];
+    for template in app.library.get().templates {
+        let id = template.id.clone();
+        chips.push(chip(
+            &template.name,
+            choice == TemplateChoice::Template(id.clone()),
+            {
+                let app = app.clone();
+                move || app.choose_template(TemplateChoice::Template(id.clone()))
+            },
+        ));
+    }
+    chips
 }
 
 fn discard_body(app: &Rc<App>) -> View {
@@ -507,6 +563,63 @@ fn effect_params_body(app: &Rc<App>, index: usize) -> View {
             }),
         ]),
     ))
+}
+
+fn select_template_body(app: &Rc<App>, recording_id: &str) -> View {
+    let library = app.library.get();
+    let mut rows: Vec<View> = vec![
+        dialog_title("Apply a template"),
+        dialog_caption("Replaces the effect chain on this recording."),
+    ];
+
+    let app_clear = app.clone();
+    let id = recording_id.to_string();
+    rows.push(row_button("No effects", Symbols::remove, move || {
+        app_clear.clear_effects(&id)
+    }));
+    for template in &library.templates {
+        let app = app.clone();
+        let id = recording_id.to_string();
+        let template_id = template.id.clone();
+        let name = template.name.clone();
+        let count = template.fx.len();
+        rows.push(row_button(
+            &format!("{name} · {count} effect(s)"),
+            Symbols::tune,
+            move || app.apply_template(&id, &template_id),
+        ));
+    }
+
+    if library.templates.is_empty() {
+        rows.push(dialog_caption("Create a template in Settings first."));
+    }
+    rows.push(actions(vec![secondary_button("Close", {
+        let app = app.clone();
+        move || app.close_dialog()
+    })]));
+
+    Column(Modifier::new().fill_max_width().gap(Dp(10.0))).child(rows)
+}
+
+fn row_button(label: &str, symbol: repose_material::Symbol, on_click: impl Fn() + 'static) -> View {
+    let th = theme();
+    Box(Modifier::new()
+        .fill_max_width()
+        .background(th.surface_container_high)
+        .clip_rounded(Dp(10.0))
+        .clickable()
+        .on_click(on_click)
+        .padding(Dp(10.0)))
+    .child(
+        Row(Modifier::new().fill_max_width().gap(Dp(10.0))).child((
+            Icon(symbol).size(Sp(16.0)).color(th.on_surface_variant),
+            Text(label.to_string())
+                .size(Sp(13.0))
+                .color(th.on_surface)
+                .single_line()
+                .overflow_ellipsize(),
+        )),
+    )
 }
 
 fn rename_body(app: &Rc<App>, heading: &str) -> View {

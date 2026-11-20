@@ -15,6 +15,7 @@ material_symbols! {
     settings: '\u{E8B8}',
     search: '\u{E8B6}',
     add: '\u{E145}',
+    content_copy: '\u{E14D}',
     tune: '\u{E429}',
     arrow_upward: '\u{E5D8}',
     arrow_downward: '\u{E5DB}',

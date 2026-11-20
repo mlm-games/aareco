@@ -8,7 +8,8 @@ use uuid::Uuid;
 pub mod model;
 
 pub use model::{
-    FxBackend, FxParam, FxSlot, LIBRARY_VERSION, Library, Mark, Recording, Topic, WAVEFORM_POINTS,
+    FxBackend, FxParam, FxSlot, LIBRARY_VERSION, Library, Mark, Recording, RecordingTemplate,
+    Topic, WAVEFORM_POINTS,
 };
 
 #[derive(Debug, thiserror::Error)]
@@ -29,6 +30,8 @@ pub enum StoreError {
     TopicNotFound(String),
     #[error("recording {0:?} does not exist")]
     RecordingNotFound(String),
+    #[error("template {0:?} does not exist")]
+    TemplateNotFound(String),
     #[error("topic name cannot be empty")]
     EmptyName,
     #[error("a topic cannot be moved inside itself")]
@@ -77,6 +80,7 @@ pub struct DeleteTopicResult {
 #[derive(Clone, Copy, Debug, Default)]
 pub struct RestoreResult {
     pub topics: usize,
+    pub templates: usize,
     pub recordings: usize,
     pub skipped: usize,
 }
@@ -243,6 +247,72 @@ impl Store {
             deleted_topics: removed.len(),
             moved_recordings: moved,
         })
+    }
+
+    pub fn add_template(&mut self, name: &str, fx: Vec<FxSlot>) -> Result<RecordingTemplate> {
+        let name = name.trim();
+        if name.is_empty() {
+            return Err(StoreError::EmptyName);
+        }
+        let now = now_ms();
+        let template = RecordingTemplate {
+            id: Uuid::new_v4().to_string(),
+            name: name.to_string(),
+            created_at: now,
+            updated_at: now,
+            fx,
+        };
+        self.library.templates.push(template.clone());
+        self.save()?;
+        Ok(template)
+    }
+
+    pub fn rename_template(&mut self, id: &str, name: &str) -> Result<()> {
+        let name = name.trim();
+        if name.is_empty() {
+            return Err(StoreError::EmptyName);
+        }
+        let template = self
+            .library
+            .templates
+            .iter_mut()
+            .find(|template| template.id == id)
+            .ok_or_else(|| StoreError::TemplateNotFound(id.to_string()))?;
+        template.name = name.to_string();
+        template.updated_at = now_ms();
+        self.save()
+    }
+
+    pub fn update_template(&mut self, id: &str, fx: Vec<FxSlot>) -> Result<()> {
+        let template = self
+            .library
+            .templates
+            .iter_mut()
+            .find(|template| template.id == id)
+            .ok_or_else(|| StoreError::TemplateNotFound(id.to_string()))?;
+        template.fx = fx;
+        template.updated_at = now_ms();
+        self.save()
+    }
+
+    pub fn duplicate_template(&mut self, id: &str) -> Result<RecordingTemplate> {
+        let source = self
+            .library
+            .template(id)
+            .ok_or_else(|| StoreError::TemplateNotFound(id.to_string()))?
+            .clone();
+        self.add_template(&format!("{} copy", source.name), source.fx)
+    }
+
+    pub fn delete_template(&mut self, id: &str) -> Result<()> {
+        let index = self
+            .library
+            .templates
+            .iter()
+            .position(|template| template.id == id)
+            .ok_or_else(|| StoreError::TemplateNotFound(id.to_string()))?;
+        self.library.templates.remove(index);
+        self.save()
     }
 
     pub fn add_recording(&mut self, recording: Recording) -> Result<()> {
@@ -507,6 +577,14 @@ impl Store {
             }
         }
 
+        let mut added_templates = 0usize;
+        for template in &backup.templates {
+            if self.library.template(&template.id).is_none() {
+                self.library.templates.push(template.clone());
+                added_templates += 1;
+            }
+        }
+
         let source_dir = source.join("recordings");
         let mut added_recordings = 0usize;
         let mut skipped = 0usize;
@@ -553,6 +631,7 @@ impl Store {
         self.save()?;
         Ok(RestoreResult {
             topics: added_topics,
+            templates: added_templates,
             recordings: added_recordings,
             skipped,
         })
@@ -613,6 +692,7 @@ mod tests {
         processed.file_name = "effect.fx.wav".to_string();
         processed.source_file = Some("effect.wav".to_string());
         store.add_recording(processed).unwrap();
+        let template = store.add_template("Doc voice", Vec::new()).unwrap();
         for name in ["effect.fx.wav", "effect.wav"] {
             std::fs::write(store.recordings_dir().join(name), b"wav").unwrap();
         }
@@ -620,17 +700,47 @@ mod tests {
         let backup = store.backup_to(backup_parent.path()).unwrap();
         assert!(backup.join("recordings/effect.fx.wav").is_file());
         assert!(backup.join("recordings/effect.wav").is_file());
+        let backup_library: Library =
+            serde_json::from_slice(&std::fs::read(backup.join("library.json")).unwrap()).unwrap();
+        assert_eq!(backup_library.templates.len(), 1);
 
         let restored_dir = tempfile::tempdir().unwrap();
         let mut restored = Store::open(restored_dir.path()).unwrap();
         let result = restored.import_backup(&backup).unwrap();
         assert_eq!(result.recordings, 1);
+        assert_eq!(result.templates, 1);
+        assert!(restored.library().template(&template.id).is_some());
         assert!(restored.recordings_dir().join("effect.fx.wav").is_file());
         assert!(restored.recordings_dir().join("effect.wav").is_file());
         assert_eq!(
             restored.library().recording("effect").unwrap().source_file,
             Some("effect.wav".to_string())
         );
+    }
+
+    #[test]
+    fn templates_persist_and_delete_independently_of_recordings() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = Store::open(dir.path()).unwrap();
+        let slot = FxSlot {
+            backend: FxBackend::Vst3,
+            uri: "/plugins/eq.vst3".to_string(),
+            name: "EQ".to_string(),
+            bypass: false,
+            params: Vec::new(),
+        };
+        let template = store.add_template("Voice", vec![slot]).unwrap();
+        let template_id = template.id.clone();
+        let mut owner = recording("owned", None);
+        owner.fx = template.fx.clone();
+        store.add_recording(owner).unwrap();
+
+        drop(store);
+        let mut store = Store::open(dir.path()).unwrap();
+        assert_eq!(store.library().template(&template_id).unwrap().fx.len(), 1);
+        store.delete_template(&template_id).unwrap();
+        assert_eq!(store.library().recording("owned").unwrap().fx.len(), 1);
+        assert!(store.library().template(&template_id).is_none());
     }
 
     #[test]

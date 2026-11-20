@@ -7,7 +7,7 @@ use repose_material::Icon;
 use repose_material::material3::{Slider, Switch, SwitchConfig};
 use repose_ui::*;
 
-use crate::app::App;
+use crate::app::{App, FxOwner};
 use crate::icons::Symbols;
 use crate::playback::PlayState;
 use crate::ui::common::{
@@ -474,11 +474,7 @@ fn detail_row(label: &str, value: String) -> View {
 fn effects_card(app: &Rc<App>, recording: &aareco_store::Recording) -> View {
     let th = theme();
     let id = recording.id.clone();
-    let rendering = app
-        .fx_render
-        .borrow()
-        .as_ref()
-        .is_some_and(|job| job.recording_id == id);
+    let rendering = app.is_rendering(&id);
     let mut rows: Vec<View> = vec![
         Row(Modifier::new()
             .fill_max_width()
@@ -543,8 +539,8 @@ fn effects_card(app: &Rc<App>, recording: &aareco_store::Recording) -> View {
                     !slot.bypass,
                     {
                         let app = app.clone();
-                        let id = id.clone();
-                        move |active| app.set_effect_bypass(&id, index, !active)
+                        let owner = FxOwner::Recording(id.clone());
+                        move |active| app.set_effect_bypass(&owner, index, !active)
                     },
                     SwitchConfig {
                         modifier: Modifier::new().flex_shrink(0.0),
@@ -561,16 +557,16 @@ fn effects_card(app: &Rc<App>, recording: &aareco_store::Recording) -> View {
             .child((
                 secondary_button("Parameters", {
                     let app = app.clone();
-                    let id = id.clone();
-                    move || app.open_effect_params(&id, index)
+                    let owner = FxOwner::Recording(id.clone());
+                    move || app.open_effect_params(&owner, index)
                 }),
                 Spacer(),
                 icon_button(
                     Symbols::arrow_upward,
                     {
                         let app = app.clone();
-                        let id = id.clone();
-                        move || app.move_effect(&id, index, -1)
+                        let owner = FxOwner::Recording(id.clone());
+                        move || app.move_effect(&owner, index, -1)
                     },
                     Some(th.on_surface_variant),
                 ),
@@ -578,8 +574,8 @@ fn effects_card(app: &Rc<App>, recording: &aareco_store::Recording) -> View {
                     Symbols::arrow_downward,
                     {
                         let app = app.clone();
-                        let id = id.clone();
-                        move || app.move_effect(&id, index, 1)
+                        let owner = FxOwner::Recording(id.clone());
+                        move || app.move_effect(&owner, index, 1)
                     },
                     Some(th.on_surface_variant),
                 ),
@@ -587,8 +583,8 @@ fn effects_card(app: &Rc<App>, recording: &aareco_store::Recording) -> View {
                     Symbols::close,
                     {
                         let app = app.clone();
-                        let id = id.clone();
-                        move || app.remove_effect(&id, index)
+                        let owner = FxOwner::Recording(id.clone());
+                        move || app.remove_effect(&owner, index)
                     },
                     Some(th.error),
                 ),
@@ -597,6 +593,24 @@ fn effects_card(app: &Rc<App>, recording: &aareco_store::Recording) -> View {
     }
 
     rows.push(divider());
+    rows.push(
+        Row(Modifier::new()
+            .fill_max_width()
+            .flex_wrap(FlexWrap::Wrap)
+            .gap(Dp(8.0)))
+        .child((
+            secondary_button("Apply template", {
+                let app = app.clone();
+                let id = id.clone();
+                move || app.open_select_template(&id)
+            }),
+            secondary_button("Save as template", {
+                let app = app.clone();
+                let id = id.clone();
+                move || app.open_save_as_template(&id)
+            }),
+        )),
+    );
     let active = recording.fx.iter().any(|slot| !slot.bypass);
     rows.push(
         Row(Modifier::new()
@@ -606,8 +620,8 @@ fn effects_card(app: &Rc<App>, recording: &aareco_store::Recording) -> View {
         .child((
             secondary_button("Add effect", {
                 let app = app.clone();
-                let id = id.clone();
-                move || app.open_add_effect(&id)
+                let owner = FxOwner::Recording(id.clone());
+                move || app.open_add_effect(owner.clone())
             }),
             Spacer(),
             if rendering {

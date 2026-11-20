@@ -7,12 +7,12 @@ use repose_material::Icon;
 use repose_material::material3::{Slider, Switch, SwitchConfig};
 use repose_ui::*;
 
-use crate::app::App;
+use crate::app::{App, FxOwner};
 use crate::icons::Symbols;
 use crate::settings::{SortOrder, StartTab, WaveformStyle};
 use crate::ui::common::{
     card, chip, format_bytes, format_date, format_duration, icon_button, scroll_page,
-    section_title, slider_config, top_bar,
+    secondary_button, section_title, slider_config, top_bar,
 };
 
 pub fn screen(app: &Rc<App>) -> View {
@@ -343,6 +343,25 @@ pub fn screen(app: &Rc<App>) -> View {
                     .child(plugin_buttons(app)),
             )),
         ),
+        section_title("Templates", None),
+        card(
+            Column(Modifier::new().fill_max_width().padding(Dp(16.0)).gap(Dp(12.0))).child((
+                setting_label(
+                    "Default template",
+                    "Its effect chain is copied into every new recording.",
+                ),
+                Row(Modifier::new().fill_max_width().flex_wrap(FlexWrap::Wrap).gap(Dp(6.0)))
+                    .child(default_template_chips(app)),
+                divider(),
+                setting_label("Effect templates", "Reusable chains for recordings."),
+                template_rows(app),
+                Row(Modifier::new().fill_max_width().flex_wrap(FlexWrap::Wrap).gap(Dp(8.0)))
+                    .child(secondary_button("New template", {
+                        let app = app.clone();
+                        move || app.open_new_template()
+                    })),
+            )),
+        ),
         section_title("About", None),
         card(Column(Modifier::new().fill_max_width().padding(Dp(16.0)).gap(Dp(8.0))).child((
             Text("aareco".to_string())
@@ -364,6 +383,100 @@ pub fn screen(app: &Rc<App>) -> View {
     ];
 
     scroll_page("aareco:settings", Dp(12.0), content)
+}
+
+fn default_template_chips(app: &Rc<App>) -> Vec<View> {
+    let current = app.settings.get().default_template;
+    let mut chips = vec![chip("None", current.is_none(), {
+        let app = app.clone();
+        move || app.set_default_template(None)
+    })];
+    for template in app.library.get().templates {
+        let id = template.id.clone();
+        chips.push(chip(
+            &template.name,
+            current.as_deref() == Some(id.as_str()),
+            {
+                let app = app.clone();
+                move || app.set_default_template(Some(id.clone()))
+            },
+        ));
+    }
+    chips
+}
+
+fn template_rows(app: &Rc<App>) -> View {
+    let th = theme();
+    let templates = app.library.get().templates;
+    if templates.is_empty() {
+        return Text("No templates yet.".to_string())
+            .size(Sp(12.0))
+            .color(th.on_surface_variant);
+    }
+    let rows: Vec<View> = templates
+        .iter()
+        .map(|template| {
+            let id = template.id.clone();
+            let count = template.fx.len();
+            let mut actions: Vec<View> = Vec::new();
+            actions.push(secondary_button("Effects", {
+                let app = app.clone();
+                let owner = FxOwner::Template(id.clone());
+                move || app.open_add_effect(owner.clone())
+            }));
+            actions.push(icon_button(
+                Symbols::edit,
+                {
+                    let app = app.clone();
+                    let id = id.clone();
+                    move || app.open_rename_template(&id)
+                },
+                None,
+            ));
+            actions.push(icon_button(
+                Symbols::content_copy,
+                {
+                    let app = app.clone();
+                    let id = id.clone();
+                    move || app.duplicate_template(&id)
+                },
+                None,
+            ));
+            actions.push(icon_button(
+                Symbols::close,
+                {
+                    let app = app.clone();
+                    let id = id.clone();
+                    move || app.delete_template(&id)
+                },
+                Some(th.error),
+            ));
+            Column(Modifier::new().fill_max_width().gap(Dp(4.0))).child((
+                Row(Modifier::new()
+                    .fill_max_width()
+                    .align_items(AlignItems::CENTER)
+                    .gap(Dp(8.0)))
+                .child((
+                    Text(template.name.clone())
+                        .size(Sp(13.0))
+                        .color(th.on_surface)
+                        .single_line()
+                        .overflow_ellipsize()
+                        .modifier(Modifier::new().flex_grow(1.0)),
+                    Text(format!("{count} effect(s)"))
+                        .size(Sp(10.0))
+                        .color(th.on_surface_variant)
+                        .single_line(),
+                )),
+                Row(Modifier::new()
+                    .fill_max_width()
+                    .flex_wrap(FlexWrap::Wrap)
+                    .gap(Dp(6.0)))
+                .child(actions),
+            ))
+        })
+        .collect();
+    Column(Modifier::new().fill_max_width().gap(Dp(8.0))).child(rows)
 }
 
 fn plugin_path_rows(app: &Rc<App>, paths: &[String]) -> View {

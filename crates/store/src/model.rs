@@ -15,6 +15,8 @@ pub struct Library {
     pub topics: Vec<Topic>,
     #[serde(default)]
     pub recordings: Vec<Recording>,
+    #[serde(default)]
+    pub templates: Vec<RecordingTemplate>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -41,6 +43,16 @@ pub struct Recording {
     pub waveform: Vec<u8>,
     #[serde(default)]
     pub source_file: Option<String>,
+    #[serde(default)]
+    pub fx: Vec<FxSlot>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct RecordingTemplate {
+    pub id: String,
+    pub name: String,
+    pub created_at: i64,
+    pub updated_at: i64,
     #[serde(default)]
     pub fx: Vec<FxSlot>,
 }
@@ -83,6 +95,7 @@ impl Library {
             version: LIBRARY_VERSION,
             topics: Vec::new(),
             recordings: Vec::new(),
+            templates: Vec::new(),
         }
     }
 
@@ -92,6 +105,10 @@ impl Library {
 
     pub fn recording(&self, id: &str) -> Option<&Recording> {
         self.recordings.iter().find(|recording| recording.id == id)
+    }
+
+    pub fn template(&self, id: &str) -> Option<&RecordingTemplate> {
+        self.templates.iter().find(|template| template.id == id)
     }
 
     pub fn children_of(&self, parent: Option<&str>) -> Vec<&Topic> {
