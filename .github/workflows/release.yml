@@ -47,3 +47,4 @@ jobs:
       android-build-tools: "37.0.0"
       android-ndk-version: "29.0.14206865"
       kotlin-version: "2.2.10"
+    secrets: inherit
