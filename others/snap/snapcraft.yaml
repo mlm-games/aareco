@@ -1,0 +1,55 @@
+name: aareco
+base: core24
+version: '9.9.9'
+summary: Voice recorder with topics, marks and plugin effects
+description: |
+  A local-first voice recorder with a topic tree, marks, playback and
+  offline VST3/CLAP effect chains. Recordings stay on the device unless
+  you export a backup.
+
+grade: stable
+confinement: strict
+icon: snap/gui/icon.svg
+title: Aareco
+license: AGPL-3.0-or-later
+contact: https://github.com/mlm-games/aareco/issues
+website: https://github.com/mlm-games/aareco
+source-code: https://github.com/mlm-games/aareco
+issues: https://github.com/mlm-games/aareco/issues
+
+platforms:
+  amd64:
+
+apps:
+  aareco:
+    command: aareco
+    extensions: [gnome]
+    plugs:
+      - home
+      - removable-media
+      - audio-playback
+      - audio-record
+      - desktop
+      - desktop-legacy
+      - wayland
+      - x11
+
+parts:
+  aareco:
+    plugin: dump
+    source: ./builds/
+    source-type: local
+    stage-packages:
+      - libasound2
+      - libpulse0
+      - libx11-6
+      - libxcursor1
+      - libxinerama1
+      - libxrandr2
+      - libxi6
+      - libxkbcommon0
+      - libwayland0
+      - libgl1
+    override-build: |
+      craftctl default
+      chmod +x $CRAFT_PART_INSTALL/aareco

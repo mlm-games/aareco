@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Version=1.5
+Name=Aareco
+Comment=Voice recorder with a topic tree, marks and plugin effects
+Categories=AudioVideo;Audio;Recorder;
+Keywords=audio;recorder;voice;topics;marks;vst3;clap;
+Exec=aareco
+Icon=io.github.mlm_games.aareco
+Terminal=false
+StartupNotify=true
+StartupWMClass=aareco-desktop

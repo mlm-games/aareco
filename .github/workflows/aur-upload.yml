@@ -1,0 +1,32 @@
+name: Publish to AUR
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_name:
+        description: 'Version name (e.g., 0.1.1)'
+        required: true
+
+jobs:
+  update-aur:
+    uses: mlm-games/ci/.github/workflows/aur-upload.yml@v1
+    with:
+      pkgname: aareco-bin
+      pkgdesc: "Voice recorder with a topic tree, marks and plugin effects"
+      binary-name: aareco-${{ inputs.version_name }}-x86_64-unknown-linux-gnu.tar.gz
+      binary-name-aarch64: aareco-${{ inputs.version_name }}-aarch64-unknown-linux-gnu.tar.gz
+      app-slug: aareco
+      app-name: "Aareco"
+      license: "AGPL-3.0-or-later"
+      depends: "alsa-lib libx11 libxcursor libxinerama libxrandr libxi libwayland libxkbcommon"
+      optdepends: "'pipewire-pulse: for PipeWire audio support' 'pulseaudio: for PulseAudio audio support'"
+      provides: "aareco"
+      conflicts: "aareco"
+      desktop-file-path: "others/flathub/io.github.mlm_games.aareco.desktop"
+      icon-url: "https://raw.githubusercontent.com/mlm-games/aareco/master/others/packaging/icon.png"
+      desktop-categories: "AudioVideo;Audio;Recorder;"
+      version: ${{ inputs.version_name }}
+      maintainer-name: "MLM-stuff"
+      maintainer-email: "gfxoxinzh@mozmail.com"
+    secrets:
+      AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}

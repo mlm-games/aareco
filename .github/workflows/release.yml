@@ -41,6 +41,7 @@ jobs:
       prerelease: ${{ inputs.mark_prerelease }}
       generate-release-notes: true
       changelog-path: ""
+      dispatch-on-release: '["aur-upload.yml","snap-upload.yml"]'
       play-track: "none"
       cargo-rapk-version: "0.22.1"
       android-api: "37.0"
