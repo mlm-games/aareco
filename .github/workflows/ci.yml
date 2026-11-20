@@ -1,0 +1,27 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: ['**']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  app:
+    uses: mlm-games/ci/.github/workflows/rust-app-ci.yml@v1
+    with:
+      working-directory: .
+      run-fmt: true
+      run-test: true
+      include-android: true
+      android-api: "37.0"
+      android-build-tools: "37.0.0"
+      android-ndk-version: "29.0.14206865"
+      cargo-rapk-version: "0.22.1"

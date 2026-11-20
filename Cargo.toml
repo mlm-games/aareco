@@ -51,7 +51,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
-description = "A local-first voice recorder with a topic tree"
+description = "A voice recorder with a topic tree"
 default-run = "aareco-desktop"
 
 [lib]
