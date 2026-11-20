@@ -1,6 +1,6 @@
 #![cfg(target_os = "android")]
 
-use jni::{JNIEnv, JavaVM, objects::JObject, objects::JValue, sys::jobject};
+use jni::{Env, JavaVM, objects::JObject, objects::JValue};
 use winit::platform::android::activity::AndroidApp;
 
 pub fn install(context: &AndroidApp) {
@@ -27,7 +27,7 @@ pub fn install(context: &AndroidApp) {
 
 pub fn request_microphone_permission(context: &AndroidApp) {
     let vm = unsafe { JavaVM::from_raw(context.vm_as_ptr().cast()) };
-    let activity = context.activity_as_ptr().cast::<jobject>();
+    let activity = context.activity_as_ptr().cast::<jni::sys::_jobject>();
     let result = vm.attach_current_thread(|env| -> jni::errors::Result<()> {
         let activity = unsafe { JObject::from_raw(env, activity) };
         request_permission(env, &activity)
@@ -37,7 +37,7 @@ pub fn request_microphone_permission(context: &AndroidApp) {
     }
 }
 
-fn request_permission(env: &mut JNIEnv, activity: &JObject) -> jni::errors::Result<()> {
+fn request_permission(env: &mut Env<'_>, activity: &JObject<'_>) -> jni::errors::Result<()> {
     let permission = env.new_string("android.permission.RECORD_AUDIO")?;
     let status = env
         .call_method(
