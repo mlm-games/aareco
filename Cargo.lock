@@ -24,7 +24,7 @@ dependencies = [
  "repose-navigation",
  "repose-platform",
  "repose-ui",
- "rlobkit-app-events 0.7.0",
+ "rlobkit-app-events",
  "rlobkit-core 0.7.0",
  "rlobkit-dialogs",
  "rodio",
@@ -4025,7 +4025,7 @@ dependencies = [
  "repose-render-wgpu",
  "repose-text",
  "repose-ui",
- "rlobkit-app-events 0.6.3",
+ "rlobkit-app-events",
  "rustc-hash 2.1.3",
  "wasm-bindgen",
  "wasm-bindgen-futures",
@@ -4146,22 +4146,6 @@ dependencies = [
  "log",
  "paranoid-android",
  "rlobkit-core 0.6.3",
- "tracing",
- "tracing-log",
- "tracing-subscriber",
-]
-
-[[package]]
-name = "rlobkit-app-events"
-version = "0.7.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "36b93447020c1c1b8e787de9d943412491a0439e4d7b9b0d622d71c0ecb29bb0"
-dependencies = [
- "jni",
- "jni-min-helper",
- "log",
- "paranoid-android",
- "rlobkit-core 0.7.0",
  "tracing",
  "tracing-log",
  "tracing-subscriber",

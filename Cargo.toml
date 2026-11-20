@@ -128,7 +128,7 @@ rlobkit-core.workspace = true
 env_logger.workspace = true
 
 [target.'cfg(target_os = "android")'.dependencies]
-rlobkit-app-events = { version = "0.7", features = ["jni-bridge"] }
+rlobkit-app-events = { version = "0.6", features = ["jni-bridge"] }
 jni = "0.22"
 ndk-context = "0.1"
 winit = { version = "0.30", features = ["android-native-activity"] }
