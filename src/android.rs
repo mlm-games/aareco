@@ -1,6 +1,6 @@
 #![cfg(target_os = "android")]
 
-use jni::{Env, JavaVM, objects::JObject, objects::JValue};
+use jni::{Env, JavaVM, jni_sig, jni_str, objects::JObject, objects::JValue};
 use winit::platform::android::activity::AndroidApp;
 
 pub fn install(context: &AndroidApp) {
@@ -42,20 +42,20 @@ fn request_permission(env: &mut Env<'_>, activity: &JObject<'_>) -> jni::errors:
     let status = env
         .call_method(
             activity,
-            "checkSelfPermission",
-            "(Ljava/lang/String;)I",
+            jni_str!("checkSelfPermission"),
+            jni_sig!("(Ljava/lang/String;)I"),
             &[JValue::Object(&permission)],
         )?
         .i()?;
     if status == 0 {
         return Ok(());
     }
-    let array = env.new_object_array(1, "java/lang/String", &permission)?;
+    let array = env.new_object_array(1, jni_str!("java/lang/String"), &permission)?;
     let array = JObject::from(array);
     env.call_method(
         activity,
-        "requestPermissions",
-        "([Ljava/lang/String;I)V",
+        jni_str!("requestPermissions"),
+        jni_sig!("([Ljava/lang/String;I)V"),
         &[JValue::Object(&array), JValue::Int(9102)],
     )?;
     Ok(())
