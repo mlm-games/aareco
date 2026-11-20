@@ -57,15 +57,18 @@ pub struct RecordingTemplate {
     pub fx: Vec<FxSlot>,
 }
 
-#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub enum FxBackend {
+    #[default]
     Vst3,
+    Builtin,
     Lv2,
     Clap,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct FxSlot {
+    #[serde(default)]
     pub backend: FxBackend,
     pub uri: String,
     pub name: String,

@@ -9,6 +9,7 @@ license = "AGPL-3.0-or-later"
 rust-version = "1.98"
 
 [workspace.dependencies]
+aareco-dsp = { path = "crates/dsp" }
 aareco-recorder = { path = "crates/recorder" }
 aareco-store = { path = "crates/store" }
 aareco-fx = { path = "crates/fx" }
@@ -110,6 +111,7 @@ yadaw-plugin-api.workspace = true
 hound.workspace = true
 rodio.workspace = true
 
+aareco-dsp.workspace = true
 aareco-recorder.workspace = true
 aareco-store.workspace = true
 aareco-fx.workspace = true

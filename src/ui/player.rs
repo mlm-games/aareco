@@ -510,6 +510,7 @@ fn effects_card(app: &Rc<App>, recording: &aareco_store::Recording) -> View {
 
     for (index, slot) in recording.fx.iter().enumerate() {
         let backend = match slot.backend {
+            aareco_store::FxBackend::Builtin => "Built-in",
             aareco_store::FxBackend::Vst3 => "VST3",
             aareco_store::FxBackend::Lv2 => "LV2",
             aareco_store::FxBackend::Clap => "CLAP",

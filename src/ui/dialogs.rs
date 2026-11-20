@@ -400,6 +400,7 @@ fn add_effect_body(app: &Rc<App>) -> View {
                                     .single_line()
                                     .overflow_ellipsize(),
                                 Text(match backend {
+                                    aareco_store::FxBackend::Builtin => "Built-in",
                                     aareco_store::FxBackend::Vst3 => "VST3",
                                     aareco_store::FxBackend::Lv2 => "LV2",
                                     aareco_store::FxBackend::Clap => "CLAP",
@@ -465,8 +466,8 @@ fn effect_params_body(app: &Rc<App>, index: usize) -> View {
     let values = app.fx_values.borrow();
     let mut rows: Vec<View> = Vec::new();
 
-    for param in params.iter().filter(|param| !param.is_hidden) {
-        let key = aareco_fx::param_key(&param.key);
+    for param in params.iter() {
+        let key = param.key.clone();
         let Some(value) = values
             .iter()
             .find(|value| value.key == key)
@@ -477,19 +478,19 @@ fn effect_params_body(app: &Rc<App>, index: usize) -> View {
         let range = (param.max - param.min).abs().max(1e-6);
         let plain = param.min + value * range;
         let shown = match param.kind {
-            yadaw_plugin_api::ParamKind::Bool => {
+            aareco_fx::FxParamKind::Bool => {
                 if plain >= 0.5 {
                     "On".to_string()
                 } else {
                     "Off".to_string()
                 }
             }
-            yadaw_plugin_api::ParamKind::Int | yadaw_plugin_api::ParamKind::Enum => {
+            aareco_fx::FxParamKind::Int | aareco_fx::FxParamKind::Enum => {
                 format!("{plain:.0}")
             }
-            yadaw_plugin_api::ParamKind::Float => format!("{plain:.2}"),
+            aareco_fx::FxParamKind::Float => format!("{plain:.2}"),
         };
-        let shown = if matches!(param.kind, yadaw_plugin_api::ParamKind::Float)
+        let shown = if matches!(param.kind, aareco_fx::FxParamKind::Float)
             && let Some(unit) = &param.unit
             && !unit.is_empty()
         {

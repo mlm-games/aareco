@@ -18,6 +18,9 @@ backups.
   result can be reverted or re-rendered with different settings.
 - Creates reusable effect templates; a chosen default is copied into every new
   recording and rendered in the background after saving.
+- Ships portable built-in effects (high-pass, EQ, compressor, de-esser, limiter,
+  gate) in a default Voice template, so the chain works on every platform
+  without external plugin files.
 - Backs the whole library up to a folder and restores it, keeping the audio
   files in place.
 - Ships a compact layout with a bottom navigation bar and a wide layout with a
@@ -50,6 +53,7 @@ through Yadaw's plugin host, and the UI is drawn with
 
 The crate split keeps capture and storage independent from the UI:
 
+- `crates/dsp`: portable built-in effects and parameter metadata.
 - `crates/recorder`: device capture, ring buffer, peaks, WAV writing, recovery.
 - `crates/store`: library model, topic tree, marks, search, backup/restore.
 - `crates/fx`: plugin hosting, effect chains, and offline rendering.

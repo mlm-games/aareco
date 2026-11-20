@@ -10,6 +10,7 @@ description = "Audio effect chains for Aareco"
 anyhow.workspace = true
 hound.workspace = true
 aareco-store.workspace = true
+aareco-dsp.workspace = true
 yadaw-plugin-api.workspace = true
 yadaw-plugin-host.workspace = true
 

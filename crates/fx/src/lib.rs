@@ -1,11 +1,45 @@
 use std::path::Path;
 
-use aareco_store::{FxBackend, FxSlot};
+use aareco_dsp::BuiltinEffect;
+use aareco_store::{FxBackend, FxParam, FxSlot};
 use anyhow::{Context, Result};
-use yadaw_plugin_api::{BackendKind, HostConfig, ProcessCtx, UnifiedParamInfo};
+use yadaw_plugin_api::{BackendKind, HostConfig, ProcessCtx};
 use yadaw_plugin_host::HostFacade;
 
 pub const BLOCK_FRAMES: usize = 512;
+
+pub use aareco_dsp::{ParamInfo as FxParamInfo, ParamKind as FxParamKind};
+
+pub fn builtin_effects() -> Vec<EffectInfo> {
+    aareco_dsp::KINDS
+        .iter()
+        .map(|kind| EffectInfo {
+            backend: FxBackend::Builtin,
+            uri: kind.to_string(),
+            name: aareco_dsp::display_name(kind).to_string(),
+        })
+        .collect()
+}
+
+pub fn builtin_slot(kind: &str) -> FxSlot {
+    FxSlot {
+        backend: FxBackend::Builtin,
+        uri: kind.to_string(),
+        name: aareco_dsp::display_name(kind).to_string(),
+        bypass: false,
+        params: builtin_params(kind),
+    }
+}
+
+pub fn builtin_params(kind: &str) -> Vec<FxParam> {
+    aareco_dsp::params(kind)
+        .iter()
+        .map(|spec| FxParam {
+            key: format!("builtin:{}", spec.key),
+            value: ((spec.default - spec.min) / (spec.max - spec.min)).clamp(0.0, 1.0),
+        })
+        .collect()
+}
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct EffectInfo {
@@ -102,11 +136,12 @@ pub fn scan_effects(
     Ok(effects)
 }
 
-pub fn backend_of(backend: FxBackend) -> BackendKind {
+pub fn backend_of(backend: FxBackend) -> Option<BackendKind> {
     match backend {
-        FxBackend::Vst3 => BackendKind::Vst3,
-        FxBackend::Lv2 => BackendKind::Lv2,
-        FxBackend::Clap => BackendKind::Clap,
+        FxBackend::Builtin => None,
+        FxBackend::Vst3 => Some(BackendKind::Vst3),
+        FxBackend::Lv2 => Some(BackendKind::Lv2),
+        FxBackend::Clap => Some(BackendKind::Clap),
     }
 }
 
@@ -118,12 +153,45 @@ pub fn backend_from(backend: BackendKind) -> FxBackend {
     }
 }
 
-pub fn describe(slot: &FxSlot, sample_rate: f64) -> Result<Vec<UnifiedParamInfo>> {
+pub fn describe(slot: &FxSlot, sample_rate: f64) -> Result<Vec<FxParamInfo>> {
+    if slot.backend == FxBackend::Builtin {
+        return Ok(aareco_dsp::params(&slot.uri)
+            .into_iter()
+            .map(|param| FxParamInfo {
+                key: format!("builtin:{}", param.key),
+                name: param.name,
+                min: param.min,
+                max: param.max,
+                default: param.default,
+                unit: param.unit,
+                kind: param.kind,
+            })
+            .collect());
+    }
     let host = host(sample_rate, &[], true)?;
+    let backend = backend_of(slot.backend)
+        .ok_or_else(|| anyhow::anyhow!("{} is not a plugin effect", slot.name))?;
     let instance = host
-        .instantiate(backend_of(slot.backend), &slot.uri)
+        .instantiate(backend, &slot.uri)
         .with_context(|| format!("could not load {}", slot.name))?;
-    Ok(instance.params().to_vec())
+    Ok(instance
+        .params()
+        .iter()
+        .map(|param| FxParamInfo {
+            key: param_key(&param.key),
+            name: param.name.clone(),
+            min: param.min,
+            max: param.max,
+            default: param.default,
+            unit: param.unit.clone(),
+            kind: match param.kind {
+                yadaw_plugin_api::ParamKind::Bool => FxParamKind::Bool,
+                yadaw_plugin_api::ParamKind::Int => FxParamKind::Int,
+                yadaw_plugin_api::ParamKind::Float => FxParamKind::Float,
+                yadaw_plugin_api::ParamKind::Enum => FxParamKind::Enum,
+            },
+        })
+        .collect())
 }
 
 fn host(
@@ -170,9 +238,24 @@ pub struct FxChain {
     slots: Vec<Loaded>,
 }
 
-struct Loaded {
-    instance: Box<dyn yadaw_plugin_api::PluginInstance>,
-    bypass: bool,
+enum Loaded {
+    Builtin {
+        left: BuiltinEffect,
+        right: BuiltinEffect,
+        bypass: bool,
+    },
+    Plugin {
+        instance: Box<dyn yadaw_plugin_api::PluginInstance>,
+        bypass: bool,
+    },
+}
+
+impl Loaded {
+    fn bypass(&self) -> bool {
+        match self {
+            Self::Builtin { bypass, .. } | Self::Plugin { bypass, .. } => *bypass,
+        }
+    }
 }
 
 impl FxChain {
@@ -180,15 +263,45 @@ impl FxChain {
         let host = host(sample_rate, &[], false)?;
         let mut loaded = Vec::new();
         for slot in slots {
+            if slot.backend == FxBackend::Builtin {
+                let stored: Vec<(String, f32)> = slot
+                    .params
+                    .iter()
+                    .map(|param| {
+                        (
+                            param
+                                .key
+                                .strip_prefix("builtin:")
+                                .unwrap_or(&param.key)
+                                .to_string(),
+                            param.value,
+                        )
+                    })
+                    .collect();
+                let left = BuiltinEffect::new(&slot.uri, &stored, sample_rate)
+                    .map_err(anyhow::Error::msg)
+                    .with_context(|| format!("could not load {}", slot.name))?;
+                let right = BuiltinEffect::new(&slot.uri, &stored, sample_rate)
+                    .map_err(anyhow::Error::msg)
+                    .with_context(|| format!("could not load {}", slot.name))?;
+                loaded.push(Loaded::Builtin {
+                    left,
+                    right,
+                    bypass: slot.bypass,
+                });
+                continue;
+            }
+            let backend = backend_of(slot.backend)
+                .ok_or_else(|| anyhow::anyhow!("{} is not a plugin effect", slot.name))?;
             let mut instance = host
-                .instantiate(backend_of(slot.backend), &slot.uri)
+                .instantiate(backend, &slot.uri)
                 .with_context(|| format!("could not load {}", slot.name))?;
             for param in &slot.params {
                 if let Some(key) = parse_param_key(&param.key) {
                     instance.set_param(&key, param.value);
                 }
             }
-            loaded.push(Loaded {
+            loaded.push(Loaded::Plugin {
                 instance,
                 bypass: slot.bypass,
             });
@@ -200,7 +313,7 @@ impl FxChain {
     }
 
     pub fn is_empty(&self) -> bool {
-        self.slots.iter().all(|slot| slot.bypass)
+        self.slots.iter().all(|slot| slot.bypass())
     }
 
     pub fn process(&mut self, ctx: &ProcessCtx, input: &[f32], output: &mut [f32]) -> Result<()> {
@@ -215,19 +328,31 @@ impl FxChain {
         right.copy_from_slice(&input[..frames]);
 
         for slot in &mut self.slots {
-            if slot.bypass {
+            if slot.bypass() {
                 continue;
             }
-            let mut out_left = vec![0.0f32; frames];
-            let mut out_right = vec![0.0f32; frames];
-            let block_ctx = ProcessCtx { frames, ..*ctx };
-            let in_channels: [&[f32]; 2] = [&left, &right];
-            let mut out_channels: [&mut [f32]; 2] = [&mut out_left, &mut out_right];
-            slot.instance
-                .process(&block_ctx, &in_channels, &mut out_channels, &[])
-                .with_context(|| "effect processing failed")?;
-            left = out_left;
-            right = out_right;
+            match slot {
+                Loaded::Builtin {
+                    left: effect_left,
+                    right: effect_right,
+                    ..
+                } => {
+                    effect_left.process(&mut left);
+                    effect_right.process(&mut right);
+                }
+                Loaded::Plugin { instance, .. } => {
+                    let mut out_left = vec![0.0f32; frames];
+                    let mut out_right = vec![0.0f32; frames];
+                    let block_ctx = ProcessCtx { frames, ..*ctx };
+                    let in_channels: [&[f32]; 2] = [&left, &right];
+                    let mut out_channels: [&mut [f32]; 2] = [&mut out_left, &mut out_right];
+                    instance
+                        .process(&block_ctx, &in_channels, &mut out_channels, &[])
+                        .with_context(|| "effect processing failed")?;
+                    left = out_left;
+                    right = out_right;
+                }
+            }
         }
 
         for frame in 0..frames {
@@ -331,6 +456,39 @@ pub fn param_key(key: &yadaw_plugin_api::ParamKey) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn renders_a_builtin_chain_without_plugins() {
+        let dir = tempfile::tempdir().unwrap();
+        let input = dir.path().join("in.wav");
+        let output = dir.path().join("out.wav");
+        let spec = hound::WavSpec {
+            channels: 1,
+            sample_rate: 48_000,
+            bits_per_sample: 16,
+            sample_format: hound::SampleFormat::Int,
+        };
+        {
+            let mut writer = hound::WavWriter::create(&input, spec).unwrap();
+            for index in 0..24_000 {
+                let sample = (index as f32 * 0.08).sin() * 12_000.0;
+                writer.write_sample(sample as i16).unwrap();
+            }
+            writer.finalize().unwrap();
+        }
+        let slots = ["highpass", "compressor", "limiter"]
+            .iter()
+            .map(|kind| builtin_slot(kind))
+            .collect::<Vec<_>>();
+        let mut chain = FxChain::new(&slots, 48_000.0).unwrap();
+        chain.render_wav(&input, &output).unwrap();
+
+        let mut reader = hound::WavReader::open(&output).unwrap();
+        let rendered: Vec<i16> = reader.samples().map(|sample| sample.unwrap()).collect();
+        assert_eq!(rendered.len(), 24_000);
+        assert!(rendered.iter().any(|sample| *sample != 0));
+        assert!(rendered.iter().all(|sample| sample.abs() < 30_000));
+    }
 
     #[test]
     fn renders_a_wav_without_effects_unchanged() {

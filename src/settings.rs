@@ -64,6 +64,8 @@ pub struct Settings {
     pub plugin_paths: Vec<String>,
     #[serde(default)]
     pub default_template: Option<String>,
+    #[serde(default)]
+    pub voice_template_installed: bool,
 }
 
 fn default_true() -> bool {
@@ -115,6 +117,7 @@ impl Default for Settings {
             mark_nudge_secs: 5,
             plugin_paths: Vec::new(),
             default_template: None,
+            voice_template_installed: false,
         }
     }
 }

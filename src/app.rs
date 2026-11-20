@@ -115,7 +115,7 @@ pub struct App {
     pub fx_render: RefCell<VecDeque<FxRenderJob>>,
     fx_render_result: Arc<Mutex<Option<std::result::Result<(), String>>>>,
     pub fx_owner: RefCell<Option<FxOwner>>,
-    pub fx_params: RefCell<Vec<yadaw_plugin_api::UnifiedParamInfo>>,
+    pub fx_params: RefCell<Vec<aareco_fx::FxParamInfo>>,
     pub fx_values: RefCell<Vec<FxParam>>,
     pub fx_search: Signal<String>,
 }
@@ -178,7 +178,20 @@ impl App {
         };
         adopt_existing_files(&mut store);
 
-        let settings = Settings::load(&root);
+        let mut settings = Settings::load(&root);
+        if !settings.voice_template_installed {
+            let fx = ["highpass", "eq", "compressor", "deesser", "limiter"]
+                .iter()
+                .map(|kind| aareco_fx::builtin_slot(kind))
+                .collect();
+            if let Ok(template) = store.add_template("Voice", fx) {
+                if settings.default_template.is_none() {
+                    settings.default_template = Some(template.id);
+                }
+                settings.voice_template_installed = true;
+                settings.save(&root);
+            }
+        }
         let devices = input_devices().unwrap_or_default();
         let playback = match Playback::new(settings.playback_speed, settings.volume) {
             Ok(player) => Some(player),
@@ -1112,13 +1125,21 @@ impl App {
         let Some(result) = ready else {
             return;
         };
-        let mut scan = self.fx_scan.borrow_mut();
-        match result {
-            Ok(effects) => {
-                scan.effects = effects;
-                scan.status = FxScanStatus::Ready;
+        let mut effects = aareco_fx::builtin_effects();
+        let failure = match result {
+            Ok(found) => {
+                effects.extend(found);
+                None
             }
-            Err(err) => scan.status = FxScanStatus::Failed(err),
+            Err(err) => Some(err),
+        };
+        {
+            let mut scan = self.fx_scan.borrow_mut();
+            scan.effects = effects;
+            scan.status = FxScanStatus::Ready;
+        }
+        if let Some(err) = failure {
+            self.toast(format!("Plugin scan failed: {err}"));
         }
     }
 
@@ -1190,12 +1211,17 @@ impl App {
         let Some(owner) = self.fx_owner.borrow().clone() else {
             return;
         };
+        let params = if effect.backend == aareco_store::FxBackend::Builtin {
+            aareco_fx::builtin_params(&effect.uri)
+        } else {
+            Vec::new()
+        };
         let slot = FxSlot {
             backend: effect.backend,
             uri: effect.uri.clone(),
             name: effect.name.clone(),
             bypass: false,
-            params: Vec::new(),
+            params,
         };
         let result = self.update_owner_fx(&owner, |slots| slots.push(slot));
         match result {
@@ -1252,9 +1278,8 @@ impl App {
             Ok(params) => {
                 let values = params
                     .iter()
-                    .filter(|param| !param.is_hidden)
                     .map(|param| {
-                        let key = aareco_fx::param_key(&param.key);
+                        let key = param.key.clone();
                         let stored = slot
                             .params
                             .iter()
@@ -1297,8 +1322,7 @@ impl App {
             .fx_params
             .borrow()
             .iter()
-            .filter(|param| !param.is_hidden)
-            .map(|param| aareco_fx::param_key(&param.key))
+            .map(|param| param.key.clone())
             .collect();
         let values: Vec<FxParam> = self
             .fx_values
