@@ -17,6 +17,8 @@ use crate::settings::SortOrder;
 pub const PAGE_MAX: Dp = Dp(920.0);
 
 pub fn scroll_page(key: impl Into<String>, gap: Dp, content: impl IntoChildren) -> View {
+    let state = remember_scroll_state(key);
+    state.set_show_scrollbar(false);
     ScrollArea(
         Modifier::new()
             .fill_max_size()
@@ -26,7 +28,7 @@ pub fn scroll_page(key: impl Into<String>, gap: Dp, content: impl IntoChildren) 
                 top: Dp(0.0),
                 bottom: Dp(0.0),
             }),
-        remember_scroll_state(key),
+        state,
         Box(Modifier::new()
             .fill_max_width()
             .justify_content(JustifyContent::CENTER)
