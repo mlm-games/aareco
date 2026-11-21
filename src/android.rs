@@ -13,12 +13,21 @@ pub fn install(context: &AndroidApp) {
         context.activity_as_ptr().cast(),
     );
     rlobkit_app_events::insets::set_on_insets(|insets| {
+        let ime_bottom = insets.ime_overlap();
+        if std::env::var("AARECO_IME_DEBUG").is_ok() {
+            log::warn!(
+                "ime insets: ime_bottom={ime_bottom} settled={} visible={:?} anim={}",
+                insets.ime_bottom,
+                insets.ime,
+                insets.ime_animation_progress
+            );
+        }
         repose_core::locals::set_window_insets_default(repose_core::locals::WindowInsets {
             top: insets.top,
             bottom: insets.bottom,
             left: insets.left,
             right: insets.right,
-            ime_bottom: insets.ime_bottom,
+            ime_bottom,
         });
         repose_platform::wake_event_loop();
     });

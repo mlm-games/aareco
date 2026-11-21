@@ -709,6 +709,9 @@ impl App {
     }
 
     pub fn open_dialog(&self, kind: DialogKind, title: String, topic: Option<String>) {
+        if std::env::var("AARECO_IME_DEBUG").is_ok() {
+            log::warn!("dialog open: {kind:?}");
+        }
         self.dialog.set(kind);
         self.dialog_title.set(title);
         self.dialog_topic.set(topic);
@@ -716,6 +719,9 @@ impl App {
     }
 
     pub fn close_dialog(&self) {
+        if std::env::var("AARECO_IME_DEBUG").is_ok() {
+            log::warn!("dialog close: {:?}", self.dialog.get());
+        }
         self.dialog_state.dismiss();
         self.dialog.set(DialogKind::None);
     }
