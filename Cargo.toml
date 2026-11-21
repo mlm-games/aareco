@@ -37,12 +37,12 @@ rodio = { version = "0.23", default-features = false, features = [
     "vorbis",
     "mp3",
 ] }
-repose-core = "0.35.1"
-repose-ui = "0.35.1"
-repose-material = "0.35.1"
-repose-platform = "0.35.1"
-repose-canvas = "0.35.1"
-repose-navigation = "0.35.1"
+repose-core = "0.35.2"
+repose-ui = "0.35.2"
+repose-material = "0.35.2"
+repose-platform = "0.35.2"
+repose-canvas = "0.35.2"
+repose-navigation = "0.35.2"
 rlobkit-dialogs = "0.7"
 rlobkit-core = "0.7"
 

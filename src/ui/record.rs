@@ -5,6 +5,7 @@ use repose_core::modifier::PaddingValues;
 use repose_core::prelude::*;
 use repose_core::text::FontWeight;
 use repose_material::Icon;
+use repose_ui::scroll::{ScrollArea, remember_scroll_state};
 use repose_ui::*;
 
 use crate::app::App;
@@ -257,20 +258,22 @@ pub fn screen(app: &Rc<App>) -> View {
         );
     }
 
-    Box(Modifier::new()
-        .fill_max_size()
-        .align_items(AlignItems::CENTER)
-        .padding_values(PaddingValues {
-            left: Dp(20.0),
-            right: Dp(20.0),
-            top: Dp(8.0),
-            bottom: Dp(24.0),
-        }))
-    .child(
+    let record_scroll = remember_scroll_state("aareco:record");
+    record_scroll.set_show_scrollbar(false);
+    ScrollArea(
+        Modifier::new().fill_max_size(),
+        record_scroll,
         Column(
             Modifier::new()
                 .fill_max_width()
                 .max_width(Dp(760.0))
+                .align_items(AlignItems::CENTER)
+                .padding_values(PaddingValues {
+                    left: Dp(20.0),
+                    right: Dp(20.0),
+                    top: Dp(8.0),
+                    bottom: Dp(24.0),
+                })
                 .gap(Dp(14.0)),
         )
         .child(children),

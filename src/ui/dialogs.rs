@@ -6,6 +6,7 @@ use repose_core::text::FontWeight;
 use repose_material::Icon;
 use repose_material::material3::dialog::{Dialog, DialogProperties};
 use repose_material::material3::{Slider, TextField, TextFieldConfig};
+use repose_ui::BoxWithConstraints;
 use repose_ui::scroll::{ScrollArea, remember_scroll_state};
 use repose_ui::*;
 
@@ -316,27 +317,32 @@ fn microphone_body(app: &Rc<App>) -> View {
         );
     }
 
-    Column(Modifier::new().fill_max_width().gap(Dp(12.0))).child((
-        dialog_title("Microphone"),
-        dialog_caption(
-            "Devices detected on this system. The system default follows your OS settings.",
-        ),
-        ScrollArea(
-            Modifier::new().fill_max_width().max_height(Dp(320.0)),
-            remember_scroll_state("aareco:dialog:microphones"),
-            Column(Modifier::new().fill_max_width().gap(Dp(2.0))).child(rows),
-        ),
-        actions(vec![
-            secondary_button("Refresh", {
-                let app = app.clone();
-                move || app.refresh_devices()
-            }),
-            primary_button("Done", {
-                let app = app.clone();
-                move || app.close_dialog()
-            }),
-        ]),
-    ))
+    let list = Column(Modifier::new().fill_max_width().gap(Dp(2.0))).child(rows);
+    let action_row = actions(vec![
+        secondary_button("Refresh", {
+            let app = app.clone();
+            move || app.refresh_devices()
+        }),
+        primary_button("Done", {
+            let app = app.clone();
+            move || app.close_dialog()
+        }),
+    ]);
+    BoxWithConstraints(Modifier::new().fill_max_width(), move |scope| {
+        let list_height = (scope.max_height - Dp(120.0)).max(Dp(80.0));
+        Column(Modifier::new().fill_max_width().gap(Dp(12.0))).child((
+            dialog_title("Microphone"),
+            dialog_caption(
+                "Devices detected on this system. The system default follows your OS settings.",
+            ),
+            ScrollArea(
+                Modifier::new().fill_max_width().height(list_height),
+                remember_scroll_state("aareco:dialog:microphones"),
+                list.clone(),
+            ),
+            action_row.clone(),
+        ))
+    })
 }
 
 fn add_effect_body(app: &Rc<App>) -> View {
@@ -346,14 +352,15 @@ fn add_effect_body(app: &Rc<App>) -> View {
     let effects = scan.effects.clone();
     drop(scan);
 
-    let mut children: Vec<View> = vec![
+    let mut top: Vec<View> = vec![
         dialog_title("Add effect"),
         dialog_caption("Equalizers, compressors and other plugins, applied to this recording."),
     ];
 
+    let mut list: Option<View> = None;
     match status {
         crate::app::FxScanStatus::Scanning | crate::app::FxScanStatus::Idle => {
-            children.push(
+            top.push(
                 Box(Modifier::new()
                     .fill_max_width()
                     .padding(Dp(18.0))
@@ -366,7 +373,7 @@ fn add_effect_body(app: &Rc<App>) -> View {
             );
         }
         crate::app::FxScanStatus::Failed(err) => {
-            children.push(dialog_caption(&format!("Scan failed: {err}")));
+            top.push(dialog_caption(&format!("Scan failed: {err}")));
         }
         crate::app::FxScanStatus::Ready => {
             let search = app.fx_search.get().to_lowercase();
@@ -413,9 +420,9 @@ fn add_effect_body(app: &Rc<App>) -> View {
                 })
                 .collect();
             if effects.is_empty() {
-                children.push(dialog_caption("No effect plugins were found."));
+                top.push(dialog_caption("No effect plugins were found."));
             } else {
-                children.push(TextField(
+                top.push(TextField(
                     Modifier::new().fill_max_width(),
                     app.fx_search.get(),
                     {
@@ -428,11 +435,7 @@ fn add_effect_body(app: &Rc<App>) -> View {
                         ..Default::default()
                     },
                 ));
-                children.push(ScrollArea(
-                    Modifier::new().fill_max_width().max_height(Dp(320.0)),
-                    remember_scroll_state("aareco:dialog:effects"),
-                    Column(Modifier::new().fill_max_width().gap(Dp(2.0))).child(rows),
-                ));
+                list = Some(Column(Modifier::new().fill_max_width().gap(Dp(2.0))).child(rows));
             }
         }
     }
@@ -454,12 +457,27 @@ fn add_effect_body(app: &Rc<App>) -> View {
         let app = app.clone();
         move || app.close_dialog()
     }));
-    children.push(actions(buttons));
+    let actions_view = actions(buttons);
 
-    Column(Modifier::new().fill_max_width().gap(Dp(12.0))).child(children)
+    BoxWithConstraints(Modifier::new().fill_max_width(), move |scope| {
+        let mut children = top.clone();
+        if let Some(list) = &list {
+            // Reserve room for the title, caption, search field and the action
+            // row, then give the remainder to the scrollable list so it has a
+            // definite height and the buttons stay pinned.
+            let list_height = (scope.max_height - Dp(190.0)).max(Dp(80.0));
+            children.push(ScrollArea(
+                Modifier::new().fill_max_width().height(list_height),
+                remember_scroll_state("aareco:dialog:effects"),
+                list.clone(),
+            ));
+        }
+        children.push(actions_view.clone());
+        Column(Modifier::new().fill_max_width().gap(Dp(12.0))).child(children)
+    })
 }
 
-fn effect_params_body(app: &Rc<App>, index: usize) -> View {
+fn effect_params_body(app: &Rc<App>, _index: usize) -> View {
     let th = theme();
     let name = app.dialog_title.get();
     let params = app.fx_params.borrow();
@@ -543,27 +561,32 @@ fn effect_params_body(app: &Rc<App>, index: usize) -> View {
                 .color(th.on_surface_variant),
         )
     } else {
-        ScrollArea(
-            Modifier::new().fill_max_width().max_height(Dp(380.0)),
-            remember_scroll_state(format!("aareco:dialog:fx-params:{index}")),
-            Column(Modifier::new().fill_max_width().gap(Dp(10.0))).child(rows),
-        )
+        Column(Modifier::new().fill_max_width().gap(Dp(10.0))).child(rows)
     };
 
-    Column(Modifier::new().fill_max_width().gap(Dp(12.0))).child((
-        dialog_title(&name),
-        body,
-        actions(vec![
-            secondary_button("Cancel", {
-                let app = app.clone();
-                move || app.close_dialog()
-            }),
-            primary_button("Save", {
-                let app = app.clone();
-                move || app.confirm_dialog()
-            }),
-        ]),
-    ))
+    let action_row = actions(vec![
+        secondary_button("Cancel", {
+            let app = app.clone();
+            move || app.close_dialog()
+        }),
+        primary_button("Save", {
+            let app = app.clone();
+            move || app.confirm_dialog()
+        }),
+    ]);
+    let index = _index;
+    BoxWithConstraints(Modifier::new().fill_max_width(), move |scope| {
+        let list_height = (scope.max_height - Dp(110.0)).max(Dp(80.0));
+        Column(Modifier::new().fill_max_width().gap(Dp(12.0))).child((
+            dialog_title(&name),
+            ScrollArea(
+                Modifier::new().fill_max_width().height(list_height),
+                remember_scroll_state(format!("aareco:dialog:fx-params:{index}")),
+                body.clone(),
+            ),
+            action_row.clone(),
+        ))
+    })
 }
 
 fn select_template_body(app: &Rc<App>, recording_id: &str) -> View {
