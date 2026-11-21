@@ -329,14 +329,22 @@ fn microphone_body(app: &Rc<App>) -> View {
         }),
     ]);
     BoxWithConstraints(Modifier::new().fill_max_width(), move |scope| {
-        let list_height = (scope.max_height - Dp(120.0)).max(Dp(80.0));
-        Column(Modifier::new().fill_max_width().gap(Dp(12.0))).child((
+        Column(
+            Modifier::new()
+                .fill_max_width()
+                .height(scope.max_height)
+                .gap(Dp(12.0)),
+        )
+        .child((
             dialog_title("Microphone"),
             dialog_caption(
                 "Devices detected on this system. The system default follows your OS settings.",
             ),
             ScrollArea(
-                Modifier::new().fill_max_width().height(list_height),
+                Modifier::new()
+                    .fill_max_width()
+                    .flex_grow(1.0)
+                    .min_height(Dp(0.0)),
                 remember_scroll_state("aareco:dialog:microphones"),
                 list.clone(),
             ),
@@ -465,15 +473,23 @@ fn add_effect_body(app: &Rc<App>) -> View {
             // Reserve room for the title, caption, search field and the action
             // row, then give the remainder to the scrollable list so it has a
             // definite height and the buttons stay pinned.
-            let list_height = (scope.max_height - Dp(190.0)).max(Dp(80.0));
             children.push(ScrollArea(
-                Modifier::new().fill_max_width().height(list_height),
+                Modifier::new()
+                    .fill_max_width()
+                    .flex_grow(1.0)
+                    .min_height(Dp(0.0)),
                 remember_scroll_state("aareco:dialog:effects"),
                 list.clone(),
             ));
         }
         children.push(actions_view.clone());
-        Column(Modifier::new().fill_max_width().gap(Dp(12.0))).child(children)
+        Column(
+            Modifier::new()
+                .fill_max_width()
+                .height(scope.max_height)
+                .gap(Dp(12.0)),
+        )
+        .child(children)
     })
 }
 
@@ -576,11 +592,19 @@ fn effect_params_body(app: &Rc<App>, _index: usize) -> View {
     ]);
     let index = _index;
     BoxWithConstraints(Modifier::new().fill_max_width(), move |scope| {
-        let list_height = (scope.max_height - Dp(110.0)).max(Dp(80.0));
-        Column(Modifier::new().fill_max_width().gap(Dp(12.0))).child((
+        Column(
+            Modifier::new()
+                .fill_max_width()
+                .height(scope.max_height)
+                .gap(Dp(12.0)),
+        )
+        .child((
             dialog_title(&name),
             ScrollArea(
-                Modifier::new().fill_max_width().height(list_height),
+                Modifier::new()
+                    .fill_max_width()
+                    .flex_grow(1.0)
+                    .min_height(Dp(0.0)),
                 remember_scroll_state(format!("aareco:dialog:fx-params:{index}")),
                 body.clone(),
             ),
