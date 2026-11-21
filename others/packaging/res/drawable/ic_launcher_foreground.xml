@@ -4,9 +4,9 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- <path
+    <path
         android:pathData="M43,36a11,11 0,0 1,22 0v22a11,11 0,0 1,-22 0z"
-        android:fillColor="#FF8A7A"/> -->
+        android:fillColor="#FF8A7A"/>
     <path
         android:pathData="M35,54v4a19,19 0,0 0,38 0v-4"
         android:strokeWidth="5"
