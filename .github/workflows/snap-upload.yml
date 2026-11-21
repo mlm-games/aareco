@@ -89,6 +89,7 @@ jobs:
         id: build
         with:
           path: others/snap
+          snapcraft-args: pack
 
       - name: Publish to Snap Store
         uses: snapcore/action-publish@v1

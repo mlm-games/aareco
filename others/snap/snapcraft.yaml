@@ -40,7 +40,7 @@ parts:
     source: ./builds/
     source-type: local
     stage-packages:
-      - libasound2
+      - libasound2t64
       - libpulse0
       - libx11-6
       - libxcursor1
@@ -48,7 +48,8 @@ parts:
       - libxrandr2
       - libxi6
       - libxkbcommon0
-      - libwayland0
+      - libwayland-client0
+      - libwayland-egl1
       - libgl1
     override-build: |
       craftctl default
