@@ -222,7 +222,7 @@ fn bottom_bar(app: &Rc<App>, route: &Route) -> View {
         selected,
         items,
         NavigationBarConfig {
-            modifier: Modifier::new().height(Dp(80.0)),
+            modifier: Modifier::new(),
             container_color: th.surface_container_low,
             selected_icon_color: th.primary,
             selected_text_color: th.on_surface,

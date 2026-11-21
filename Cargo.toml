@@ -37,12 +37,12 @@ rodio = { version = "0.23", default-features = false, features = [
     "vorbis",
     "mp3",
 ] }
-repose-core = "0.32"
-repose-ui = "0.32"
-repose-material = "0.32"
-repose-platform = "0.32"
-repose-canvas = "0.32"
-repose-navigation = "0.32"
+repose-core = "0.35"
+repose-ui = "0.35"
+repose-material = "0.35"
+repose-platform = "0.35"
+repose-canvas = "0.35"
+repose-navigation = "0.35"
 rlobkit-dialogs = "0.7"
 rlobkit-core = "0.7"
 
@@ -130,7 +130,7 @@ rlobkit-core.workspace = true
 env_logger.workspace = true
 
 [target.'cfg(target_os = "android")'.dependencies]
-rlobkit-app-events = { version = "0.6", features = ["jni-bridge"] }
+rlobkit-app-events = { version = "0.7", features = ["jni-bridge"] }
 jni = "0.22"
 ndk-context = "0.1"
 winit = { version = "0.30", features = ["android-native-activity"] }
