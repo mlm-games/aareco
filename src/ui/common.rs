@@ -563,6 +563,7 @@ fn topic_pick_row(name: &str, depth: usize, selected: bool, on_click: impl Fn() 
 pub fn slider_config(on_finish: Option<Rc<dyn Fn()>>) -> SliderConfig {
     let th = theme();
     SliderConfig {
+        modifier: Modifier::new().fill_max_width(),
         active_track_color: th.primary,
         inactive_track_color: th.outline.with_alpha_f32(0.35),
         thumb_color: th.primary,
