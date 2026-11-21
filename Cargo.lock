@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "aareco"
-version = "0.1.3"
+version = "0.1.4"
 dependencies = [
  "aareco-dsp",
  "aareco-fx",
@@ -38,11 +38,11 @@ dependencies = [
 
 [[package]]
 name = "aareco-dsp"
-version = "0.1.3"
+version = "0.1.4"
 
 [[package]]
 name = "aareco-fx"
-version = "0.1.3"
+version = "0.1.4"
 dependencies = [
  "aareco-dsp",
  "aareco-store",
@@ -55,7 +55,7 @@ dependencies = [
 
 [[package]]
 name = "aareco-recorder"
-version = "0.1.3"
+version = "0.1.4"
 dependencies = [
  "cpal",
  "log",
@@ -67,7 +67,7 @@ dependencies = [
 
 [[package]]
 name = "aareco-store"
-version = "0.1.3"
+version = "0.1.4"
 dependencies = [
  "chrono",
  "directories",
